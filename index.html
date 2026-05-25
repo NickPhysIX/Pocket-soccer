@@ -259,7 +259,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V4.5 build: camera keeps player visible, pause/mute buttons, iOS controls.</p>
+    <p class="small">V4.5.2 build: goals mirrored — opening faces field, net hangs off the back.
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -1700,29 +1700,28 @@
       drawMissingAssetBox(FIELD_WIDTH - 2, GOAL_TOP - 10, 60, GOAL_BOTTOM - GOAL_TOP + 20, 'GOAL');
       return;
     }
+    // Side-view goal sprite: vertical front post with the net extending diagonally behind.
+    // The opening must face the FIELD; the net hangs off the field (off-screen is fine).
+    //
+    // In the source sprite the front post is on the right side; net extends upper-left.
+    //   - LEFT goal:  sprite as-is. Post on goal line at x=20. Net hangs off the left.
+    //   - RIGHT goal: mirrored. Post on goal line at x=FIELD_WIDTH-20. Net hangs off the right.
+    const POST_X_FRACTION = 0.65;            // front-post x in source sprite (measured: ~104/160)
+    const GOAL_VISUAL_SCALE = 1.0;           // 1.0 = post height equals goal height. Increase to make goal sprite more visually prominent.
+    const goalH = (GOAL_BOTTOM - GOAL_TOP) * GOAL_VISUAL_SCALE;
+    const goalW = goalH * img.width / img.height;
+    // Center vertically on the goal midline so growing the sprite expands both up and down.
+    const y = (GOAL_TOP + GOAL_BOTTOM) / 2 - goalH / 2;
 
-    // The goal sprite is a side-view asset, so we anchor it using hand-tuned source-space
-    // landmarks rather than the full sprite bounds. This makes the visible mouth fit exactly
-    // between the field's goal markers on both sides.
-    const SOURCE_MOUTH_TOP = 111;
-    const SOURCE_MOUTH_BOTTOM = 246;
-    const SOURCE_FRONT_POST_X = 109;
+    // LEFT goal: sprite as-is. Front post sits on x=20.
+    const leftSpriteLeft = 20 - goalW * POST_X_FRACTION;
+    ctx.drawImage(img, leftSpriteLeft, y, goalW, goalH);
 
-    const mouthH = SOURCE_MOUTH_BOTTOM - SOURCE_MOUTH_TOP;
-    const scale = (GOAL_BOTTOM - GOAL_TOP) / mouthH;
-    const goalW = img.width * scale;
-    const goalH = img.height * scale;
-    const y = GOAL_TOP - SOURCE_MOUTH_TOP * scale;
-
-    // Right goal: align the front post to the right goal line.
-    const rightX = (FIELD_WIDTH - 20) - SOURCE_FRONT_POST_X * scale;
-    ctx.drawImage(img, rightX, y, goalW, goalH);
-
-    // Left goal: mirror and align the front post to the left goal line.
+    // RIGHT goal: mirror horizontally. Front post sits on x = FIELD_WIDTH - 20.
     ctx.save();
-    ctx.translate(20 + (goalW - SOURCE_FRONT_POST_X * scale), y);
+    ctx.translate(FIELD_WIDTH - 20, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(img, 0, 0, goalW, goalH);
+    ctx.drawImage(img, -goalW * POST_X_FRACTION, y, goalW, goalH);
     ctx.restore();
   }
 
