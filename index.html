@@ -110,6 +110,36 @@
       border-radius: 8px;
       font-size: 14px;
     }
+    #topControls {
+      display: none;
+      position: absolute;
+      top: max(10px, calc(env(safe-area-inset-top) + 8px));
+      right: max(10px, calc(env(safe-area-inset-right) + 10px));
+      gap: 8px;
+      z-index: 12;
+      pointer-events: auto;
+    }
+    #topControls.inGame { display: flex; }
+    .topBtn {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      padding: 0;
+      font-size: 19px;
+      line-height: 42px;
+      text-align: center;
+      color: #fff;
+      border: 2px solid rgba(255,255,255,.78);
+      background: rgba(10, 22, 10, .72);
+      text-shadow: 1px 1px 0 rgba(0,0,0,.8);
+      box-shadow: 0 6px 14px rgba(0,0,0,.32), inset 0 -5px 10px rgba(0,0,0,.18), inset 0 4px 9px rgba(255,255,255,.12);
+    }
+    .topBtn:active, .topBtn.flash { transform: scale(.94); background: rgba(255,255,255,.28); }
+    #muteBtn.muted { background: rgba(145, 145, 145, .78); }
+    @media (max-width: 520px) {
+      #topControls { gap: 6px; top: max(8px, calc(env(safe-area-inset-top) + 6px)); right: max(8px, calc(env(safe-area-inset-right) + 8px)); }
+      .topBtn { width: 38px; height: 38px; border-radius: 13px; font-size: 17px; line-height: 38px; }
+    }
     #touchLayer { display: none; position: absolute; inset: 0; pointer-events: auto; z-index: 7; }
     html.touch .touchOnly, body.touch .touchOnly { display: block !important; }
     #joyBase, #joyKnob, #joyGuide {
@@ -229,7 +259,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V4.4 build: zichtbare iOS-controls, dynamische joystick en kleurknoppen.</p>
+    <p class="small">V4.5 build: camera keeps player visible, pause/mute buttons, iOS controls.</p>
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -245,6 +275,10 @@
   </div>
   <button id="passBtn" class="touchOnly actionBtn">↗<br>PASS</button>
   <button id="shootBtn" class="touchOnly actionBtn">⚽<br>SCHIET</button>
+  <div id="topControls" aria-label="Game controls">
+    <button id="pauseBtn" class="topBtn" title="Pauze" aria-label="Pauze">⏸</button>
+    <button id="muteBtn" class="topBtn" title="Geluid aan/uit" aria-label="Geluid aan/uit">🔊</button>
+  </div>
 
   <div id="installHint">📱 Tip: tik op het deel-icoon en kies “Zet op beginscherm” om als app te installeren!<button id="closeHint">×</button></div>
 </div>
@@ -295,6 +329,9 @@
   const joyGuide = document.getElementById('joyGuide');
   const shootBtn = document.getElementById('shootBtn');
   const passBtn = document.getElementById('passBtn');
+  const topControls = document.getElementById('topControls');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const muteBtn = document.getElementById('muteBtn');
   const installHint = document.getElementById('installHint');
 
   const assets = {};
@@ -319,6 +356,7 @@
     timeRemaining: 120,
     matchDuration: 120,
     difficulty: 'normal',
+    paused: false,
     lastTimestamp: 0,
     assetsReady: false,
     kickoffTeam: 'home',
@@ -358,10 +396,12 @@
     fadeIntervals: new Map(), // separate fade timers per audio element
     goalCheerTimeout: null,
     targetVolume: 0.5,        // 50% base volume
+    muted: false,             // user setting, persisted in localStorage
     homeHadBall: false        // tracks edge: home gains/loses possession
   };
 
   function setupAudio() {
+    try { audio.muted = localStorage.getItem('pocket-five-muted') === '1'; } catch (_) { audio.muted = false; }
     const sources = ['./cheer1.mp3', './cheer3.mp3'];
     audio.cheers = sources.map(src => {
       const a = new Audio(src);
@@ -456,7 +496,7 @@
   }
 
   function startCheer() {
-    if (!audio.unlocked || audio.currentCheer || audio.goalCheer || game.state !== 'PLAYING') return;
+    if (!audio.unlocked || audio.muted || game.paused || audio.currentCheer || audio.goalCheer || game.state !== 'PLAYING') return;
     const idx = pickRandomCheer();
     if (idx === null) return;
     const cheer = audio.cheers[idx];
@@ -471,7 +511,7 @@
 
   function playGoalCheer() {
     // Short burst on a home goal. Tracked separately so it can be stopped on menu/rematch/tab events.
-    if (!audio.unlocked) return;
+    if (!audio.unlocked || audio.muted || game.paused) return;
     stopCheer(true);
     stopGoalCheer(true);
     const idx = pickRandomCheer();
@@ -491,13 +531,13 @@
 
   function updateCrowdAudio() {
     // Called every frame. Tracks whether home team has possession and toggles cheer.
-    if (game.state !== 'PLAYING') {
+    if (game.state !== 'PLAYING' || game.paused || audio.muted) {
       stopCheer();
       audio.homeHadBall = false;
       return;
     }
     const homeHasBall = !!(ball.owner && ball.owner.team === 'home');
-    if (homeHasBall && !audio.homeHadBall) {
+    if (homeHasBall && (!audio.homeHadBall || (!audio.currentCheer && !audio.goalCheer))) {
       startCheer();
     } else if (!homeHasBall && audio.homeHadBall) {
       stopCheer();
@@ -656,6 +696,8 @@
     unlockAudio();  // iOS requires audio unlock on user gesture
     resetInputState();
     stopAllCrowdAudio(true);
+    game.paused = false;
+    updateTopControls();
     game.scoreHome = 0;
     game.scoreAway = 0;
     game.half = 1;
@@ -668,9 +710,54 @@
 
   function setState(state, text = '', subtext = '', timer = 0) {
     game.state = state;
+    if (state !== 'PLAYING') game.paused = false;
     game.overlayText = text;
     game.overlaySubtext = subtext;
     game.stateTimer = timer;
+    updateTopControls();
+  }
+
+  function isMatchActiveState() {
+    return !['MENU', 'FULLTIME'].includes(game.state);
+  }
+
+  function updateTopControls() {
+    if (!topControls || !pauseBtn || !muteBtn) return;
+    topControls.classList.toggle('inGame', isMatchActiveState());
+    pauseBtn.textContent = game.paused ? '▶' : '⏸';
+    pauseBtn.title = game.paused ? 'Verder spelen' : 'Pauze';
+    pauseBtn.setAttribute('aria-label', pauseBtn.title);
+    muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', audio.muted);
+    muteBtn.title = audio.muted ? 'Geluid aanzetten' : 'Geluid uitzetten';
+    muteBtn.setAttribute('aria-label', muteBtn.title);
+  }
+
+  function togglePause() {
+    if (!isMatchActiveState()) return;
+    game.paused = !game.paused;
+    resetInputState();
+    if (game.paused) {
+      stopAllCrowdAudio(false);
+    } else {
+      audio.homeHadBall = false;
+    }
+    updateTopControls();
+  }
+
+  function setMuted(muted) {
+    audio.muted = !!muted;
+    try { localStorage.setItem('pocket-five-muted', audio.muted ? '1' : '0'); } catch (_) {}
+    if (audio.muted) {
+      stopAllCrowdAudio(true);
+    } else {
+      audio.homeHadBall = false;
+    }
+    updateTopControls();
+  }
+
+  function toggleMuted() {
+    setMuted(!audio.muted);
   }
 
   function getUserPlayer() {
@@ -851,8 +938,32 @@
   bindActionButton(shootBtn, 'shoot');
   bindActionButton(passBtn, 'pass');
 
+  let lastTopButtonAt = 0;
+  function flashTopButton(btn) {
+    if (!btn) return;
+    btn.classList.add('flash');
+    setTimeout(() => btn.classList.remove('flash'), 130);
+  }
+  function bindTopButton(btn, handler) {
+    function fire(e) {
+      const now = performance.now();
+      if (now - lastTopButtonAt < 130) { if (e) e.preventDefault(); return; }
+      lastTopButtonAt = now;
+      handler();
+      flashTopButton(btn);
+      if (e) e.preventDefault();
+    }
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.pointerType && e.pointerType !== 'mouse') { enableTouchMode(); fire(e); }
+    }, { passive: false });
+    btn.addEventListener('click', fire);
+  }
+  bindTopButton(pauseBtn, togglePause);
+  bindTopButton(muteBtn, toggleMuted);
+
   document.getElementById('startBtn').addEventListener('click', startMatch);
   document.getElementById('rematchBtn').addEventListener('click', () => {
+    game.paused = false;
     stopAllCrowdAudio(true);
     rematchPanel.style.display = 'none';
     menuPanel.style.display = 'block';
@@ -1384,6 +1495,12 @@
   function update(dt) {
     if (!game.assetsReady) return;
     dt = Math.min(dt, 1/30); // avoid huge jumps after tab-switching
+    if (game.paused) {
+      input.shootQueued = false;
+      input.passQueued = false;
+      stopAllCrowdAudio(false);
+      return;
+    }
     updateStateTimers(dt);
     if (game.state !== 'PLAYING') {
       input.shootQueued = false;
@@ -1447,6 +1564,43 @@
     return clamp(base - zoomOut, 1.06, base);
   }
 
+  function clampCameraToField() {
+    const visibleW = VIEW_WIDTH / camera.zoom;
+    const visibleH = VIEW_HEIGHT / camera.zoom;
+    if (visibleW < FIELD_WIDTH) {
+      camera.x = clamp(camera.x, visibleW / 2, FIELD_WIDTH - visibleW / 2);
+    } else {
+      camera.x = CENTER_X;
+    }
+    if (visibleH < FIELD_HEIGHT) {
+      camera.y = clamp(camera.y, visibleH / 2, FIELD_HEIGHT - visibleH / 2);
+    } else {
+      camera.y = CENTER_Y;
+    }
+  }
+
+  function keepUserVisibleInCamera(user) {
+    if (!user) return;
+    // Final safety clamp: whatever the ball/camera lead does, the controlled player must remain visible.
+    const touchMode = document.documentElement.classList.contains('touch');
+    const leftMargin = touchMode ? Math.min(116, VIEW_WIDTH * 0.24) : Math.min(86, VIEW_WIDTH * 0.18);
+    const rightMargin = touchMode ? Math.min(112, VIEW_WIDTH * 0.23) : Math.min(98, VIEW_WIDTH * 0.18);
+    const topMargin = Math.min(118, Math.max(72, VIEW_HEIGHT * 0.13));
+    const bottomMargin = touchMode ? Math.min(170, Math.max(122, VIEW_HEIGHT * 0.20)) : Math.min(118, Math.max(82, VIEW_HEIGHT * 0.14));
+    const minX = Math.min(leftMargin, VIEW_WIDTH * 0.42);
+    const maxX = Math.max(minX + 30, VIEW_WIDTH - Math.min(rightMargin, VIEW_WIDTH * 0.42));
+    const minY = Math.min(topMargin, VIEW_HEIGHT * 0.42);
+    const maxY = Math.max(minY + 30, VIEW_HEIGHT - Math.min(bottomMargin, VIEW_HEIGHT * 0.42));
+
+    let sx = (user.x - camera.x) * camera.zoom + VIEW_WIDTH / 2;
+    let sy = (user.y - camera.y) * camera.zoom + VIEW_HEIGHT / 2;
+    if (sx < minX) camera.x += (sx - minX) / camera.zoom;
+    else if (sx > maxX) camera.x += (sx - maxX) / camera.zoom;
+    sx = (user.x - camera.x) * camera.zoom + VIEW_WIDTH / 2;
+    if (sy < minY) camera.y += (sy - minY) / camera.zoom;
+    else if (sy > maxY) camera.y += (sy - maxY) / camera.zoom;
+  }
+
   function updateCamera() {
     const user = getUserPlayer();
     let focusX, focusY;
@@ -1482,18 +1636,9 @@
     camera.x += (targetX - camera.x) * cameraFollow;
     camera.y += (targetY - camera.y) * cameraFollow;
 
-    const visibleW = VIEW_WIDTH / camera.zoom;
-    const visibleH = VIEW_HEIGHT / camera.zoom;
-    if (visibleW < FIELD_WIDTH) {
-      camera.x = clamp(camera.x, visibleW / 2, FIELD_WIDTH - visibleW / 2);
-    } else {
-      camera.x = CENTER_X;
-    }
-    if (visibleH < FIELD_HEIGHT) {
-      camera.y = clamp(camera.y, visibleH / 2, FIELD_HEIGHT - visibleH / 2);
-    } else {
-      camera.y = CENTER_Y;
-    }
+    clampCameraToField();
+    keepUserVisibleInCamera(user);
+    clampCameraToField();
   }
 
   function beginWorldRender() {
@@ -1753,8 +1898,9 @@
     ctx.font = `800 ${smallFont}px system-ui, sans-serif`;
     ctx.textAlign = 'right';
     const clock = `${formatTime(game.timeRemaining)}   ${game.half}e HELFT`;
-    ctx.strokeText(clock, VIEW_WIDTH - 22, 24);
-    ctx.fillText(clock, VIEW_WIDTH - 22, 24);
+    const rightHudPad = isMatchActiveState() ? 118 : 22;
+    ctx.strokeText(clock, VIEW_WIDTH - rightHudPad, 24);
+    ctx.fillText(clock, VIEW_WIDTH - rightHudPad, 24);
 
     ctx.textAlign = 'left';
     ctx.strokeText('THUIS  vs  UIT', 22, 24);
@@ -1767,6 +1913,25 @@
   }
 
   function drawOverlay() {
+    if (game.paused) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,.34)';
+      ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `900 ${Math.max(46, Math.min(72, VIEW_WIDTH * 0.075))}px system-ui, sans-serif`;
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(0,0,0,.88)';
+      ctx.fillStyle = '#fff';
+      ctx.strokeText('PAUZE', VIEW_WIDTH / 2, VIEW_HEIGHT / 2 - 12);
+      ctx.fillText('PAUZE', VIEW_WIDTH / 2, VIEW_HEIGHT / 2 - 12);
+      ctx.font = `800 ${Math.max(18, Math.min(28, VIEW_WIDTH * 0.032))}px system-ui, sans-serif`;
+      ctx.lineWidth = 5;
+      ctx.strokeText('Tik op ▶ om verder te spelen', VIEW_WIDTH / 2, VIEW_HEIGHT / 2 + 46);
+      ctx.fillText('Tik op ▶ om verder te spelen', VIEW_WIDTH / 2, VIEW_HEIGHT / 2 + 46);
+      ctx.restore();
+      return;
+    }
     if (!['KICKOFF','GOAL','HALFTIME','FULLTIME'].includes(game.state)) return;
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,.46)';
@@ -1834,7 +1999,7 @@
     const active = [audio.currentCheer, audio.goalCheer].filter(Boolean);
     if (document.hidden) {
       active.forEach(a => a.pause());
-    } else {
+    } else if (!audio.muted && !game.paused) {
       active.forEach(a => {
         const p = a.play();
         if (p && typeof p.catch === 'function') p.catch(() => {});
@@ -1845,6 +2010,7 @@
   resizeCanvas();
   resetPlayersToFormation();
   setupAudio();
+  updateTopControls();
   loadAssets(() => {
     game.assetsReady = true;
     loading.style.display = 'none';
