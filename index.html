@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="5-a-Side">
+  <meta name="theme-color" content="#2d7a2d">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <title>Pocket Five-a-Side</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      position: fixed;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      background: #142414;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #gameWrap {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      background: radial-gradient(circle at center, #1b3a1b 0%, #0d180d 80%);
+    }
+    canvas {
+      display: block;
+      touch-action: none;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #2d7a2d;
+      box-shadow: 0 0 30px rgba(0,0,0,.45);
+    }
+    .panel {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(92vw, 540px);
+      color: #fff;
+      background: rgba(8, 20, 8, .88);
+      border: 3px solid rgba(255,255,255,.55);
+      box-shadow: 0 16px 40px rgba(0,0,0,.5);
+      border-radius: 24px;
+      padding: 24px;
+      text-align: center;
+      z-index: 10;
+      backdrop-filter: blur(3px);
+    }
+    .panel h1 {
+      margin: 0 0 8px;
+      font-size: clamp(30px, 6vw, 52px);
+      letter-spacing: .02em;
+      text-shadow: 3px 3px 0 #000;
+    }
+    .panel p { margin: 8px 0 18px; opacity: .9; }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 10px 0 18px; }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font-weight: 800;
+      font-size: 16px;
+      color: #0b1d0b;
+      background: #f0f0f0;
+      cursor: pointer;
+      box-shadow: inset 0 -3px 0 rgba(0,0,0,.25), 0 3px 0 rgba(0,0,0,.25);
+    }
+    button:active { transform: translateY(2px); box-shadow: inset 0 -1px 0 rgba(0,0,0,.25), 0 1px 0 rgba(0,0,0,.25); }
+    button.active { background: #ffdf44; }
+    #startBtn, #rematchBtn { background: #6df06d; padding: 15px 26px; font-size: 20px; }
+    #installHint {
+      position: absolute;
+      left: max(14px, env(safe-area-inset-left));
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(14px, env(safe-area-inset-bottom));
+      background: rgba(0,0,0,.82);
+      color: white;
+      border: 2px solid rgba(255,255,255,.5);
+      border-radius: 14px;
+      padding: 12px 42px 12px 14px;
+      z-index: 11;
+      display: none;
+      font-size: 15px;
+    }
+    #installHint button {
+      position: absolute;
+      right: 8px;
+      top: 6px;
+      padding: 4px 9px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    #touchLayer { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+    .touch .touchOnly { display: block !important; }
+    #joyBase, #joyKnob {
+      display: none;
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    #joyBase { width: 100px; height: 100px; background: rgba(255,255,255,.24); border: 3px solid rgba(255,255,255,.55); }
+    #joyKnob { width: 42px; height: 42px; background: rgba(255,255,255,.62); border: 2px solid rgba(0,0,0,.25); }
+    #shootBtn {
+      display: none;
+      position: absolute;
+      right: max(30px, env(safe-area-inset-right));
+      bottom: max(30px, env(safe-area-inset-bottom));
+      width: 104px;
+      height: 104px;
+      border-radius: 50%;
+      z-index: 8;
+      background: rgba(255,255,255,.35);
+      color: #fff;
+      border: 3px solid rgba(255,255,255,.65);
+      text-shadow: 2px 2px 0 rgba(0,0,0,.75);
+      font-size: 16px;
+      pointer-events: auto;
+      box-shadow: 0 8px 18px rgba(0,0,0,.3), inset 0 -8px 20px rgba(0,0,0,.18);
+    }
+    #shootBtn.flash { background: rgba(255,230,80,.6); transform: scale(.96); }
+    #loading {
+      position: absolute;
+      color: white;
+      font-weight: 800;
+      text-shadow: 2px 2px 0 black;
+      z-index: 2;
+    }
+    #rematchPanel { display: none; }
+    .small { font-size: 13px; opacity: .82; line-height: 1.35; }
+  </style>
+</head>
+<body>
+<div id="gameWrap">
+  <div id="loading">Laden...</div>
+  <canvas id="gameCanvas" width="1200" height="700" aria-label="Pocket Five-a-Side game canvas"></canvas>
+
+  <div id="menuPanel" class="panel">
+    <h1>Pocket Five-a-Side</h1>
+    <p>Ren, schiet en scoor. Pijltjes/WASD + spatie, of joystick + shoot op iPad.</p>
+    <strong>Moeilijkheid</strong>
+    <div class="row" id="difficultyButtons">
+      <button data-difficulty="easy">Makkelijk</button>
+      <button class="active" data-difficulty="normal">Normaal</button>
+      <button data-difficulty="hard">Moeilijk</button>
+    </div>
+    <strong>Wedstrijdduur</strong>
+    <div class="row" id="durationButtons">
+      <button class="active" data-duration="120">2×2 min</button>
+      <button data-duration="300">2×5 min</button>
+      <button data-duration="600">2×10 min</button>
+    </div>
+    <button id="startBtn">Start Match</button>
+    <p class="small">V1-build: eenvoudige possession-voetbal, anti-klonteren AI, keepers, score, rust/einde en PWA-bestanden.</p>
+  </div>
+
+  <div id="rematchPanel" class="panel">
+    <h1 id="finalTitle">Einde wedstrijd</h1>
+    <p id="finalText">Uitslag</p>
+    <button id="rematchBtn">Nieuwe Wedstrijd</button>
+  </div>
+
+  <div id="touchLayer" class="touchOnly">
+    <div id="joyBase"></div>
+    <div id="joyKnob"></div>
+  </div>
+  <button id="shootBtn" class="touchOnly">⚽<br>SHOOT</button>
+
+  <div id="installHint">📱 Tip: tik op het deel-icoon en kies “Zet op beginscherm” om als app te installeren!<button id="closeHint">×</button></div>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  // === CONSTANTS ===
+  const FIELD_WIDTH = 1200;
+  const FIELD_HEIGHT = 700;
+  const CENTER_X = FIELD_WIDTH / 2;
+  const CENTER_Y = FIELD_HEIGHT / 2;
+  const PLAYER_RADIUS = 16;
+  const CONTROL_RADIUS = 24;
+  const PLAYER_SPEED = 205;       // pixels per second
+  const AI_SPEED = 178;
+  const KEEPER_SPEED = 185;
+  const BALL_FRICTION_PER_FRAME = 0.97;
+  const SHOOT_POWER = 640;        // pixels per second
+  const BALL_SIZE = 24;
+  const GOAL_TOP = 245;
+  const GOAL_BOTTOM = 455;
+  const GOAL_CENTER_Y = (GOAL_TOP + GOAL_BOTTOM) / 2;
+  const GOAL_MOUTH_PAD = 8;
+
+  const DIFFICULTIES = {
+    easy:   { label: 'Makkelijk', speedMult: 0.85, reactionFrames: 15, shotSpread: 0.30, tackleChance: 0.25 },
+    normal: { label: 'Normaal',   speedMult: 1.00, reactionFrames: 8,  shotSpread: 0.15, tackleChance: 0.40 },
+    hard:   { label: 'Moeilijk',  speedMult: 1.10, reactionFrames: 3,  shotSpread: 0.05, tackleChance: 0.55 }
+  };
+
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const menuPanel = document.getElementById('menuPanel');
+  const rematchPanel = document.getElementById('rematchPanel');
+  const finalTitle = document.getElementById('finalTitle');
+  const finalText = document.getElementById('finalText');
+  const loading = document.getElementById('loading');
+  const joyBase = document.getElementById('joyBase');
+  const joyKnob = document.getElementById('joyKnob');
+  const shootBtn = document.getElementById('shootBtn');
+  const installHint = document.getElementById('installHint');
+
+  const assets = {};
+  const assetList = {
+    player: './assets/player.png',
+    teammate: './assets/teammate.png',
+    opponent: './assets/opponent.png',
+    keeperHome: './assets/keeper_home.png',
+    keeperAway: './assets/keeper_away.png',
+    ball: './assets/ball.png',
+    goal: './assets/goal.png'
+  };
+
+  const game = {
+    state: 'MENU',
+    overlayText: '',
+    overlaySubtext: '',
+    stateTimer: 0,
+    half: 1,
+    scoreHome: 0,
+    scoreAway: 0,
+    timeRemaining: 120,
+    matchDuration: 120,
+    difficulty: 'normal',
+    lastTimestamp: 0,
+    assetsReady: false,
+    kickoffTeam: 'home'
+  };
+
+  const input = {
+    up: false, down: false, left: false, right: false,
+    shootQueued: false,
+    joyActive: false,
+    joyId: null,
+    joyBaseX: 0, joyBaseY: 0,
+    joyX: 0, joyY: 0,
+    joyPower: 0
+  };
+
+  const ball = { x: CENTER_X, y: CENTER_Y, vx: 0, vy: 0, owner: null, lastOwner: null, ownerCooldown: 0 };
+  let players = [];
+
+  // === AUDIO SYSTEM ===
+  // Crowd cheers play while the home team has possession, and a short burst on goals.
+  // iOS Safari requires audio to be unlocked by a user gesture (Start button does this).
+  const audio = {
+    cheers: [],               // array of HTMLAudioElement
+    currentCheer: null,       // currently playing possession cheer
+    goalCheer: null,          // currently playing goal-celebration cheer
+    lastCheerIndex: -1,       // anti-repeat
+    unlocked: false,
+    fadeIntervals: new Map(), // separate fade timers per audio element
+    goalCheerTimeout: null,
+    targetVolume: 0.5,        // 50% base volume
+    homeHadBall: false        // tracks edge: home gains/loses possession
+  };
+
+  function setupAudio() {
+    const sources = ['./assets/audio/cheer1.mp3', './assets/audio/cheer3.mp3'];
+    audio.cheers = sources.map(src => {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      a.volume = 0;  // start silent so fade-in works
+      return a;
+    });
+  }
+
+  function unlockAudio() {
+    // Plays-and-pauses each cheer once to satisfy iOS Safari's autoplay policy.
+    if (audio.unlocked) return;
+    audio.cheers.forEach(a => {
+      const p = a.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
+      }
+    });
+    audio.unlocked = true;
+  }
+
+  function pickRandomCheer() {
+    if (audio.cheers.length === 0) return null;
+    if (audio.cheers.length === 1) return 0;
+    let i;
+    do {
+      i = Math.floor(Math.random() * audio.cheers.length);
+    } while (i === audio.lastCheerIndex);
+    audio.lastCheerIndex = i;
+    return i;
+  }
+
+  function clearFade(el) {
+    const existing = audio.fadeIntervals.get(el);
+    if (existing) clearInterval(existing);
+    audio.fadeIntervals.delete(el);
+  }
+
+  function fadeAudio(el, targetVol, durationMs, onComplete) {
+    clearFade(el);
+    const startVol = el.volume;
+    const startTime = performance.now();
+    const interval = setInterval(() => {
+      const t = Math.min(1, (performance.now() - startTime) / durationMs);
+      el.volume = startVol + (targetVol - startVol) * t;
+      if (t >= 1) {
+        clearFade(el);
+        if (onComplete) onComplete();
+      }
+    }, 16);
+    audio.fadeIntervals.set(el, interval);
+  }
+
+  function pauseAndRewind(el) {
+    if (!el) return;
+    clearFade(el);
+    el.pause();
+    el.currentTime = 0;
+    el.volume = 0;
+  }
+
+  function stopCheer(immediate = false) {
+    if (!audio.currentCheer) return;
+    const cheer = audio.currentCheer;
+    audio.currentCheer = null;
+    if (immediate) {
+      pauseAndRewind(cheer);
+      return;
+    }
+    fadeAudio(cheer, 0, 300, () => pauseAndRewind(cheer));
+  }
+
+  function stopGoalCheer(immediate = false) {
+    if (audio.goalCheerTimeout) {
+      clearTimeout(audio.goalCheerTimeout);
+      audio.goalCheerTimeout = null;
+    }
+    if (!audio.goalCheer) return;
+    const cheer = audio.goalCheer;
+    audio.goalCheer = null;
+    if (immediate) {
+      pauseAndRewind(cheer);
+      return;
+    }
+    fadeAudio(cheer, 0, 300, () => pauseAndRewind(cheer));
+  }
+
+  function stopAllCrowdAudio(immediate = false) {
+    stopCheer(immediate);
+    stopGoalCheer(immediate);
+    audio.homeHadBall = false;
+  }
+
+  function startCheer() {
+    if (!audio.unlocked || audio.currentCheer || audio.goalCheer || game.state !== 'PLAYING') return;
+    const idx = pickRandomCheer();
+    if (idx === null) return;
+    const cheer = audio.cheers[idx];
+    cheer.currentTime = 0;
+    cheer.volume = 0;
+    cheer.loop = false;
+    const p = cheer.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    audio.currentCheer = cheer;
+    fadeAudio(cheer, audio.targetVolume, 250);
+  }
+
+  function playGoalCheer() {
+    // Short burst on a home goal. Tracked separately so it can be stopped on menu/rematch/tab events.
+    if (!audio.unlocked) return;
+    stopCheer(true);
+    stopGoalCheer(true);
+    const idx = pickRandomCheer();
+    if (idx === null) return;
+    const cheer = audio.cheers[idx];
+    cheer.currentTime = 0;
+    cheer.volume = Math.min(1, audio.targetVolume * 1.2);
+    cheer.loop = false;
+    const p = cheer.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    audio.goalCheer = cheer;
+    audio.goalCheerTimeout = setTimeout(() => {
+      audio.goalCheerTimeout = null;
+      if (audio.goalCheer === cheer) stopGoalCheer(false);
+    }, 2500);
+  }
+
+  function updateCrowdAudio() {
+    // Called every frame. Tracks whether home team has possession and toggles cheer.
+    if (game.state !== 'PLAYING') {
+      stopCheer();
+      audio.homeHadBall = false;
+      return;
+    }
+    const homeHasBall = !!(ball.owner && ball.owner.team === 'home');
+    if (homeHasBall && !audio.homeHadBall) {
+      startCheer();
+    } else if (!homeHasBall && audio.homeHadBall) {
+      stopCheer();
+    }
+    audio.homeHadBall = homeHasBall;
+  }
+
+  // === UTILS ===
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const dist = (a, b, c, d) => Math.hypot(a - c, b - d);
+  const normalize = (x, y) => {
+    const len = Math.hypot(x, y);
+    return len > 0.0001 ? { x: x / len, y: y / len, len } : { x: 0, y: 0, len: 0 };
+  };
+  const angleToVec = (angle) => ({ x: Math.cos(angle), y: Math.sin(angle) });
+  const formatTime = (seconds) => {
+    const s = Math.max(0, Math.ceil(seconds));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  };
+
+  function loadAssets(callback) {
+    const entries = Object.entries(assetList);
+    let loaded = 0;
+    entries.forEach(([key, src]) => {
+      const img = new Image();
+      img.onload = () => { assets[key] = img; if (++loaded === entries.length) callback(); };
+      img.onerror = () => { console.error('Kon asset niet laden:', src); if (++loaded === entries.length) callback(); };
+      img.src = src;
+    });
+  }
+
+  function resizeCanvas() {
+    const targetRatio = FIELD_WIDTH / FIELD_HEIGHT;
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    const screenRatio = screenW / screenH;
+    let canvasW, canvasH;
+    if (screenRatio > targetRatio) {
+      canvasH = screenH;
+      canvasW = canvasH * targetRatio;
+    } else {
+      canvasW = screenW;
+      canvasH = canvasW / targetRatio;
+    }
+    canvas.style.width = canvasW + 'px';
+    canvas.style.height = canvasH + 'px';
+    canvas.width = FIELD_WIDTH;
+    canvas.height = FIELD_HEIGHT;
+    ctx.imageSmoothingEnabled = false;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', resizeCanvas);
+
+  // === TEAM SETUP ===
+  function makePlayer(opts) {
+    return {
+      id: opts.id,
+      team: opts.team,
+      role: opts.role || 'field',
+      controlled: !!opts.controlled,
+      sprite: opts.sprite,
+      x: opts.x, y: opts.y,
+      homeX: opts.x, homeY: opts.y,
+      facingX: opts.team === 'home' ? 1 : -1,
+      facingY: 0,
+      targetX: opts.x, targetY: opts.y,
+      speed: opts.speed || PLAYER_SPEED,
+      aiTimer: 0,
+      shootCooldown: 0,
+      catchTimer: 0,
+      tackleCooldown: 0
+    };
+  }
+
+  function resetPlayersToFormation() {
+    players = [];
+    const home = [
+      { id: 'homeKeeper', role: 'keeper', sprite: 'keeperHome', x: 60, y: 350, speed: KEEPER_SPEED },
+      { id: 'homeDef', sprite: 'teammate', x: 250, y: 350 },
+      { id: 'homeMid1', sprite: 'teammate', x: 450, y: 200 },
+      { id: 'homeMid2', sprite: 'teammate', x: 450, y: 500 },
+      { id: 'homeFwd1', sprite: 'teammate', x: 650, y: 200 },
+      { id: 'user', sprite: 'player', x: 650, y: 500, controlled: true }
+    ];
+    home.forEach(p => players.push(makePlayer({ ...p, team: 'home' })));
+    const mirrorX = x => FIELD_WIDTH - x;
+    const away = [
+      { id: 'awayKeeper', role: 'keeper', sprite: 'keeperAway', x: mirrorX(60), y: 350, speed: KEEPER_SPEED },
+      { id: 'awayDef', sprite: 'opponent', x: mirrorX(250), y: 350 },
+      { id: 'awayMid1', sprite: 'opponent', x: mirrorX(450), y: 200 },
+      { id: 'awayMid2', sprite: 'opponent', x: mirrorX(450), y: 500 },
+      { id: 'awayFwd1', sprite: 'opponent', x: mirrorX(650), y: 200 },
+      { id: 'awayFwd2', sprite: 'opponent', x: mirrorX(650), y: 500 }
+    ];
+    away.forEach(p => players.push(makePlayer({ ...p, team: 'away' })));
+  }
+
+  function resetForKickoff(kickoffTeam = 'home') {
+    resetPlayersToFormation();
+    ball.x = CENTER_X; ball.y = CENTER_Y; ball.vx = 0; ball.vy = 0; ball.owner = null; ball.lastOwner = null; ball.ownerCooldown = 0;
+    game.kickoffTeam = kickoffTeam;
+  }
+
+  function startMatch() {
+    unlockAudio();  // iOS requires audio unlock on user gesture
+    stopAllCrowdAudio(true);
+    game.scoreHome = 0;
+    game.scoreAway = 0;
+    game.half = 1;
+    game.timeRemaining = game.matchDuration;
+    resetForKickoff('home');
+    setState('KICKOFF', 'AFTRAP!', DIFFICULTIES[game.difficulty].label, 1.5);
+    menuPanel.style.display = 'none';
+    rematchPanel.style.display = 'none';
+  }
+
+  function setState(state, text = '', subtext = '', timer = 0) {
+    game.state = state;
+    game.overlayText = text;
+    game.overlaySubtext = subtext;
+    game.stateTimer = timer;
+  }
+
+  function getUserPlayer() {
+    return players.find(p => p.controlled);
+  }
+
+  function getTeamBallOwner(team) {
+    return ball.owner && ball.owner.team === team ? ball.owner : null;
+  }
+
+  // === INPUT ===
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Spacebar'].includes(e.key)) e.preventDefault();
+    const k = e.key.toLowerCase();
+    if (k === 'arrowup' || k === 'w') input.up = true;
+    if (k === 'arrowdown' || k === 's') input.down = true;
+    if (k === 'arrowleft' || k === 'a') input.left = true;
+    if (k === 'arrowright' || k === 'd') input.right = true;
+    if (k === ' ' || k === 'spacebar') input.shootQueued = true;
+  }, { passive: false });
+
+  window.addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'arrowup' || k === 'w') input.up = false;
+    if (k === 'arrowdown' || k === 's') input.down = false;
+    if (k === 'arrowleft' || k === 'a') input.left = false;
+    if (k === 'arrowright' || k === 'd') input.right = false;
+  });
+
+  function updateJoystickVisual(clientX, clientY) {
+    const dx = clientX - input.joyBaseX;
+    const dy = clientY - input.joyBaseY;
+    const n = normalize(dx, dy);
+    const maxR = 40;
+    const r = Math.min(maxR, n.len);
+    input.joyX = n.x;
+    input.joyY = n.y;
+    input.joyPower = Math.min(1, n.len / maxR);
+    joyBase.style.left = input.joyBaseX + 'px';
+    joyBase.style.top = input.joyBaseY + 'px';
+    joyKnob.style.left = (input.joyBaseX + n.x * r) + 'px';
+    joyKnob.style.top = (input.joyBaseY + n.y * r) + 'px';
+  }
+
+  function endJoystick() {
+    input.joyActive = false;
+    input.joyId = null;
+    input.joyX = 0; input.joyY = 0; input.joyPower = 0;
+    joyBase.style.display = 'none';
+    joyKnob.style.display = 'none';
+  }
+
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (isTouchDevice) document.body.classList.add('touch');
+
+  document.addEventListener('touchstart', (e) => {
+    if (game.state === 'MENU' || game.state === 'FULLTIME') return;
+    for (const t of e.changedTouches) {
+      if (!input.joyActive && t.clientX < window.innerWidth * 0.55) {
+        input.joyActive = true;
+        input.joyId = t.identifier;
+        input.joyBaseX = t.clientX;
+        input.joyBaseY = t.clientY;
+        joyBase.style.display = 'block';
+        joyKnob.style.display = 'block';
+        updateJoystickVisual(t.clientX, t.clientY);
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!input.joyActive) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier === input.joyId) {
+        updateJoystickVisual(t.clientX, t.clientY);
+        e.preventDefault();
+        break;
+      }
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) if (t.identifier === input.joyId) endJoystick();
+  }, { passive: false });
+  document.addEventListener('touchcancel', endJoystick, { passive: false });
+
+  shootBtn.addEventListener('touchstart', (e) => {
+    input.shootQueued = true;
+    shootBtn.classList.add('flash');
+    setTimeout(() => shootBtn.classList.remove('flash'), 120);
+    e.preventDefault();
+  }, { passive: false });
+  shootBtn.addEventListener('click', (e) => { input.shootQueued = true; e.preventDefault(); });
+
+  document.getElementById('startBtn').addEventListener('click', startMatch);
+  document.getElementById('rematchBtn').addEventListener('click', () => {
+    stopAllCrowdAudio(true);
+    rematchPanel.style.display = 'none';
+    menuPanel.style.display = 'block';
+    setState('MENU');
+  });
+
+  document.getElementById('difficultyButtons').addEventListener('click', (e) => {
+    if (!e.target.dataset.difficulty) return;
+    game.difficulty = e.target.dataset.difficulty;
+    document.querySelectorAll('#difficultyButtons button').forEach(b => b.classList.toggle('active', b === e.target));
+  });
+  document.getElementById('durationButtons').addEventListener('click', (e) => {
+    if (!e.target.dataset.duration) return;
+    game.matchDuration = Number(e.target.dataset.duration);
+    document.querySelectorAll('#durationButtons button').forEach(b => b.classList.toggle('active', b === e.target));
+  });
+
+  // === GAME LOGIC ===
+  function moveToward(player, targetX, targetY, speed, dt, stopRadius = 4) {
+    const dx = targetX - player.x;
+    const dy = targetY - player.y;
+    const n = normalize(dx, dy);
+    if (n.len <= stopRadius) return;
+    const step = Math.min(n.len, speed * dt);
+    player.x += n.x * step;
+    player.y += n.y * step;
+    player.facingX = n.x;
+    player.facingY = n.y;
+  }
+
+  function clampPlayer(player) {
+    player.x = clamp(player.x, 20, FIELD_WIDTH - 20);
+    player.y = clamp(player.y, 30, FIELD_HEIGHT - 20);
+  }
+
+  function updateControlledPlayer(player, dt) {
+    let dx = 0, dy = 0, power = 1;
+    if (input.left) dx -= 1;
+    if (input.right) dx += 1;
+    if (input.up) dy -= 1;
+    if (input.down) dy += 1;
+    if (input.joyActive && input.joyPower > 0.05) {
+      dx += input.joyX;
+      dy += input.joyY;
+      power = input.joyPower;
+    }
+    const n = normalize(dx, dy);
+    if (n.len > 0) {
+      player.x += n.x * PLAYER_SPEED * power * dt;
+      player.y += n.y * PLAYER_SPEED * power * dt;
+      player.facingX = n.x;
+      player.facingY = n.y;
+    }
+    clampPlayer(player);
+  }
+
+  function closestFieldPlayerToBall(team) {
+    let best = null;
+    let bestD = Infinity;
+    for (const p of players) {
+      if (p.team !== team || p.role === 'keeper') continue;
+      const d = dist(p.x, p.y, ball.x, ball.y);
+      if (d < bestD) { best = p; bestD = d; }
+    }
+    return best;
+  }
+
+  function updateAIPlayer(player, dt, closestHome, closestAway) {
+    const diff = DIFFICULTIES[game.difficulty];
+    const speedMult = player.team === 'away' ? diff.speedMult : 1;
+    const reaction = (player.team === 'away' ? diff.reactionFrames : 8) / 60;
+    player.aiTimer -= dt;
+
+    if (ball.owner === player) {
+      // Carry the ball toward the opponent goal. Shoot when close enough.
+      const targetGoalX = player.team === 'home' ? FIELD_WIDTH + 30 : -30;
+      const targetGoalY = GOAL_CENTER_Y + (Math.random() - 0.5) * 50;
+      if (player.aiTimer <= 0) {
+        player.targetX = targetGoalX;
+        player.targetY = targetGoalY;
+        player.aiTimer = reaction;
+      }
+      const pressure = players.some(o => o.team !== player.team && dist(o.x, o.y, player.x, player.y) < 45);
+      const dodgeY = pressure ? (Math.random() - 0.5) * 120 : 0;
+      moveToward(player, player.targetX, player.targetY + dodgeY, AI_SPEED * 1.05 * speedMult, dt);
+      const goalDist = Math.abs((player.team === 'home' ? FIELD_WIDTH : 0) - player.x);
+      if (goalDist < 260 && player.shootCooldown <= 0) {
+        aiShoot(player);
+      }
+    } else {
+      const ownHasBall = ball.owner && ball.owner.team === player.team;
+      const opponentHasBall = ball.owner && ball.owner.team !== player.team;
+      const closestForTeam = player.team === 'home' ? closestHome : closestAway;
+      const shouldChase = (closestForTeam === player) && (!ownHasBall);
+
+      if (shouldChase || opponentHasBall && closestForTeam === player) {
+        if (player.aiTimer <= 0) {
+          player.targetX = ball.x;
+          player.targetY = ball.y;
+          player.aiTimer = reaction;
+        }
+        moveToward(player, player.targetX, player.targetY, AI_SPEED * speedMult, dt);
+      } else if (ownHasBall) {
+        // Support position: shift formation toward the attacking goal.
+        const shift = player.team === 'home' ? 150 : -150;
+        moveToward(player, clamp(player.homeX + shift, 60, FIELD_WIDTH - 60), player.homeY, AI_SPEED * 0.82 * speedMult, dt, 18);
+      } else {
+        moveToward(player, player.homeX, player.homeY, AI_SPEED * 0.75 * speedMult, dt, 18);
+      }
+    }
+    clampPlayer(player);
+  }
+
+  function updateKeeper(keeper, dt) {
+    if (ball.owner === keeper) {
+      keeper.catchTimer += dt;
+      keeper.facingX = keeper.team === 'home' ? 1 : -1;
+      keeper.facingY = 0;
+      if (keeper.catchTimer > 1.0) {
+        const base = keeper.team === 'home' ? 0 : Math.PI;
+        const angle = base + (Math.random() - 0.5) * 0.45;
+        const v = angleToVec(angle);
+        shootBall(keeper, v.x, v.y, 760);
+        keeper.catchTimer = 0;
+      }
+      return;
+    }
+    keeper.catchTimer = 0;
+    const side = keeper.team === 'home' ? 'left' : 'right';
+    const nearPenalty = side === 'left' ? ball.x < 210 : ball.x > FIELD_WIDTH - 210;
+    const baseX = side === 'left' ? 60 : FIELD_WIDTH - 60;
+    const challengeX = side === 'left' ? 125 : FIELD_WIDTH - 125;
+    const targetX = nearPenalty ? challengeX : baseX;
+    const targetY = clamp(ball.y, GOAL_TOP + 20, GOAL_BOTTOM - 20);
+    moveToward(keeper, targetX, targetY, KEEPER_SPEED, dt, 8);
+    keeper.facingX = keeper.team === 'home' ? 1 : -1;
+    keeper.facingY = 0;
+    clampPlayer(keeper);
+  }
+
+  function shootBall(player, dirX, dirY, power = SHOOT_POWER) {
+    const n = normalize(dirX, dirY);
+    if (n.len === 0) return;
+    ball.owner = null;
+    ball.lastOwner = player;
+    ball.ownerCooldown = 0.30;
+    ball.vx = n.x * power;
+    ball.vy = n.y * power;
+    ball.x = player.x + n.x * 24;
+    ball.y = player.y + n.y * 24;
+    player.shootCooldown = 0.35;
+    player.facingX = n.x;
+    player.facingY = n.y;
+  }
+
+  function aiShoot(player) {
+    const diff = DIFFICULTIES[game.difficulty];
+    const spread = player.team === 'away' ? diff.shotSpread : 0.15;
+    const goalX = player.team === 'home' ? FIELD_WIDTH + 80 : -80;
+    const targetY = GOAL_CENTER_Y + (Math.random() - 0.5) * 90;
+    const baseAngle = Math.atan2(targetY - player.y, goalX - player.x);
+    const angle = baseAngle + (Math.random() - 0.5) * spread;
+    const v = angleToVec(angle);
+    shootBall(player, v.x, v.y, SHOOT_POWER * 0.95);
+  }
+
+  function updatePlayerTimers(dt) {
+    for (const p of players) {
+      p.shootCooldown = Math.max(0, p.shootCooldown - dt);
+      p.tackleCooldown = Math.max(0, p.tackleCooldown - dt);
+    }
+    ball.ownerCooldown = Math.max(0, ball.ownerCooldown - dt);
+  }
+
+  function updateBall(dt) {
+    if (ball.owner) {
+      const o = ball.owner;
+      ball.vx = 0; ball.vy = 0;
+      ball.x = o.x + o.facingX * 23;
+      ball.y = o.y + o.facingY * 23 - 4;
+      return;
+    }
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+    const friction = Math.pow(BALL_FRICTION_PER_FRAME, dt * 60);
+    ball.vx *= friction;
+    ball.vy *= friction;
+    if (Math.hypot(ball.vx, ball.vy) < 6) { ball.vx = 0; ball.vy = 0; }
+
+    // Score first if the ball crosses a goal line inside the mouth.
+    if (ball.x < -GOAL_MOUTH_PAD && ball.y > GOAL_TOP && ball.y < GOAL_BOTTOM) {
+      handleGoal('away');
+      return;
+    }
+    if (ball.x > FIELD_WIDTH + GOAL_MOUTH_PAD && ball.y > GOAL_TOP && ball.y < GOAL_BOTTOM) {
+      handleGoal('home');
+      return;
+    }
+
+    // Bounce off walls/sidelines, except through the goal mouth.
+    if (ball.y < BALL_SIZE/2) { ball.y = BALL_SIZE/2; ball.vy = Math.abs(ball.vy) * 0.7; }
+    if (ball.y > FIELD_HEIGHT - BALL_SIZE/2) { ball.y = FIELD_HEIGHT - BALL_SIZE/2; ball.vy = -Math.abs(ball.vy) * 0.7; }
+    if (ball.x < BALL_SIZE/2 && !(ball.y > GOAL_TOP && ball.y < GOAL_BOTTOM)) {
+      ball.x = BALL_SIZE/2; ball.vx = Math.abs(ball.vx) * 0.72;
+    }
+    if (ball.x > FIELD_WIDTH - BALL_SIZE/2 && !(ball.y > GOAL_TOP && ball.y < GOAL_BOTTOM)) {
+      ball.x = FIELD_WIDTH - BALL_SIZE/2; ball.vx = -Math.abs(ball.vx) * 0.72;
+    }
+  }
+
+  function handlePossession() {
+    if (ball.owner) {
+      // Tackle attempts by opponents.
+      const diff = DIFFICULTIES[game.difficulty];
+      for (const p of players) {
+        if (p.team === ball.owner.team || p.tackleCooldown > 0) continue;
+        if (dist(p.x, p.y, ball.owner.x, ball.owner.y) < CONTROL_RADIUS + 4) {
+          p.tackleCooldown = 0.22;
+          const chance = p.team === 'away' ? diff.tackleChance : 0.40;
+          if (Math.random() < chance) {
+            ball.owner = p;
+            ball.lastOwner = null;
+            ball.ownerCooldown = 0;
+            p.tackleCooldown = 0.45;
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // Free ball pickup: nearest eligible player catches/controls it.
+    let nearest = null;
+    let nearestD = CONTROL_RADIUS;
+    for (const p of players) {
+      if (ball.ownerCooldown > 0 && p === ball.lastOwner) continue;
+      const d = dist(p.x, p.y, ball.x, ball.y);
+      if (d < nearestD) { nearest = p; nearestD = d; }
+    }
+    if (nearest) {
+      ball.owner = nearest;
+      ball.lastOwner = null;
+      ball.ownerCooldown = 0;
+      nearest.catchTimer = 0;
+    }
+  }
+
+  function handlePlayerCollisions() {
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const a = players[i], b = players[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const d = Math.hypot(dx, dy) || 0.0001;
+        const minD = PLAYER_RADIUS * 1.75;
+        if (d < minD) {
+          const push = (minD - d) * 0.45;
+          const nx = dx / d, ny = dy / d;
+          if (!a.controlled) { a.x -= nx * push; a.y -= ny * push; }
+          if (!b.controlled) { b.x += nx * push; b.y += ny * push; }
+          clampPlayer(a); clampPlayer(b);
+        }
+      }
+    }
+  }
+
+  function updateClock(dt) {
+    if (game.state !== 'PLAYING') return;
+    game.timeRemaining -= dt;
+    if (game.timeRemaining <= 0) {
+      game.timeRemaining = 0;
+      if (game.half === 1) {
+        stopAllCrowdAudio();
+        setState('HALFTIME', 'RUST', `${game.scoreHome} — ${game.scoreAway}`, 3);
+      } else {
+        finishMatch();
+      }
+    }
+  }
+
+  function handleGoal(scoringTeam) {
+    if (scoringTeam === 'home') game.scoreHome += 1;
+    else game.scoreAway += 1;
+    const conceded = scoringTeam === 'home' ? 'away' : 'home';
+    resetForKickoff(conceded);
+    setState('GOAL', 'DOELPUNT!', `${game.scoreHome} — ${game.scoreAway}`, 2.0);
+    // Goal celebration sound — only cheer for home team goals
+    if (scoringTeam === 'home') {
+      playGoalCheer();
+    } else {
+      // For away goals, stop any home crowd cheer immediately.
+      stopAllCrowdAudio(true);
+    }
+    audio.homeHadBall = false;  // reset edge tracker since possession resets too
+  }
+
+  function finishMatch() {
+    stopAllCrowdAudio();
+    let result = 'GELIJKSPEL';
+    if (game.scoreHome > game.scoreAway) result = 'THUIS WINT!';
+    if (game.scoreAway > game.scoreHome) result = 'UIT WINT!';
+    setState('FULLTIME', 'EINDE WEDSTRIJD!', result, 0);
+    finalTitle.textContent = 'Einde wedstrijd';
+    finalText.textContent = `${game.scoreHome} — ${game.scoreAway} • ${result}`;
+    rematchPanel.style.display = 'block';
+  }
+
+  function updateStateTimers(dt) {
+    if (!['KICKOFF','GOAL','HALFTIME'].includes(game.state)) return;
+    game.stateTimer -= dt;
+    if (game.stateTimer > 0) return;
+    if (game.state === 'HALFTIME') {
+      game.half = 2;
+      game.timeRemaining = game.matchDuration;
+      resetForKickoff(game.kickoffTeam);
+      setState('KICKOFF', '2e HELFT', `${game.scoreHome} — ${game.scoreAway}`, 1.5);
+    } else {
+      setState('PLAYING');
+    }
+  }
+
+  function update(dt) {
+    if (!game.assetsReady) return;
+    dt = Math.min(dt, 1/30); // avoid huge jumps after tab-switching
+    updateStateTimers(dt);
+    if (game.state !== 'PLAYING') {
+      input.shootQueued = false;
+      if (game.state === 'GOAL') {
+        stopCheer();
+      } else {
+        stopAllCrowdAudio();
+      }
+      audio.homeHadBall = false;
+      return;
+    }
+
+    updatePlayerTimers(dt);
+
+    const user = getUserPlayer();
+    if (user) updateControlledPlayer(user, dt);
+
+    const closestHome = closestFieldPlayerToBall('home');
+    const closestAway = closestFieldPlayerToBall('away');
+    for (const p of players) {
+      if (p.controlled) continue;
+      if (p.role === 'keeper') updateKeeper(p, dt);
+      else updateAIPlayer(p, dt, closestHome, closestAway);
+    }
+
+    if (input.shootQueued && user && ball.owner === user && user.shootCooldown <= 0) {
+      shootBall(user, user.facingX, user.facingY, SHOOT_POWER);
+    }
+    input.shootQueued = false;
+
+    handlePlayerCollisions();
+    updateBall(dt);
+    handlePossession();
+    updateClock(dt);
+    if (game.state !== 'PLAYING') {
+      stopCheer();
+      return;
+    }
+    updateCrowdAudio();
+  }
+
+  // === RENDERING ===
+  function drawField() {
+    ctx.fillStyle = '#2d7a2d';
+    ctx.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    const stripeW = 80;
+    for (let x = 0; x < FIELD_WIDTH; x += stripeW) {
+      ctx.fillStyle = (Math.floor(x / stripeW) % 2 === 0) ? '#347f34' : '#2d7a2d';
+      ctx.fillRect(x, 0, stripeW, FIELD_HEIGHT);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.96)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, FIELD_WIDTH - 40, FIELD_HEIGHT - 40);
+    ctx.beginPath(); ctx.moveTo(CENTER_X, 20); ctx.lineTo(CENTER_X, FIELD_HEIGHT - 20); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(CENTER_X, CENTER_Y, 80, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(CENTER_X, CENTER_Y, 5, 0, Math.PI * 2); ctx.fill();
+
+    // Penalty and goal areas.
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+    ctx.strokeRect(20, 200, 200, 300);
+    ctx.strokeRect(20, 260, 100, 180);
+    ctx.strokeRect(FIELD_WIDTH - 220, 200, 200, 300);
+    ctx.strokeRect(FIELD_WIDTH - 120, 260, 100, 180);
+
+    // Goal mouth marker line is intentionally subtle.
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.beginPath(); ctx.moveTo(20, GOAL_TOP); ctx.lineTo(20, GOAL_BOTTOM); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(FIELD_WIDTH - 20, GOAL_TOP); ctx.lineTo(FIELD_WIDTH - 20, GOAL_BOTTOM); ctx.stroke();
+  }
+
+  function drawGoals() {
+    const img = assets.goal;
+    if (!img) return;
+    const goalH = GOAL_BOTTOM - GOAL_TOP + 32;
+    const goalW = goalH * img.width / img.height;
+    const y = GOAL_CENTER_Y - goalH / 2;
+    // Left goal: flip horizontally so the opening faces right.
+    ctx.save();
+    ctx.translate(goalW * 0.52, y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, goalW, goalH);
+    ctx.restore();
+    // Right goal: as-is, opening faces left.
+    ctx.drawImage(img, FIELD_WIDTH - goalW * 0.52, y, goalW, goalH);
+  }
+
+  function drawPlayerSprite(player) {
+    const img = assets[player.sprite];
+    if (!img) return;
+    const targetH = player.role === 'keeper' ? 72 : 68;
+    const targetW = targetH * img.width / img.height;
+    const x = player.x - targetW / 2;
+    const y = player.y - targetH;
+    if (player.controlled) {
+      const pulse = 0.65 + 0.25 * Math.sin(performance.now() / 160);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(player.x, player.y - 3, 26, 10, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.drawImage(img, x, y, targetW, targetH);
+  }
+
+  function drawPlayers() {
+    const sorted = [...players].sort((a,b) => a.y - b.y);
+    for (const p of sorted) drawPlayerSprite(p);
+  }
+
+  function drawBall() {
+    const img = assets.ball;
+    if (!img) return;
+    ctx.drawImage(img, ball.x - BALL_SIZE/2, ball.y - BALL_SIZE/2, BALL_SIZE, BALL_SIZE);
+  }
+
+  function drawHUD() {
+    ctx.save();
+    ctx.font = '900 34px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,.75)';
+    ctx.fillStyle = '#fff';
+    const score = `${game.scoreHome} — ${game.scoreAway}`;
+    ctx.strokeText(score, CENTER_X, 24);
+    ctx.fillText(score, CENTER_X, 24);
+
+    ctx.font = '800 22px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    const clock = `${formatTime(game.timeRemaining)}   ${game.half}e HELFT`;
+    ctx.strokeText(clock, FIELD_WIDTH - 28, 28);
+    ctx.fillText(clock, FIELD_WIDTH - 28, 28);
+
+    ctx.textAlign = 'left';
+    ctx.strokeText('THUIS  vs  UIT', 28, 28);
+    ctx.fillText('THUIS  vs  UIT', 28, 28);
+    ctx.restore();
+  }
+
+  function drawOverlay() {
+    if (!['KICKOFF','GOAL','HALFTIME','FULLTIME'].includes(game.state)) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.46)';
+    ctx.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 72px system-ui, sans-serif';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(0,0,0,.88)';
+    ctx.fillStyle = '#fff';
+    ctx.strokeText(game.overlayText, CENTER_X, CENTER_Y - 20);
+    ctx.fillText(game.overlayText, CENTER_X, CENTER_Y - 20);
+    if (game.overlaySubtext) {
+      ctx.font = '800 34px system-ui, sans-serif';
+      ctx.lineWidth = 6;
+      ctx.strokeText(game.overlaySubtext, CENTER_X, CENTER_Y + 54);
+      ctx.fillText(game.overlaySubtext, CENTER_X, CENTER_Y + 54);
+    }
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.imageSmoothingEnabled = false;
+    drawField();
+    drawGoals();
+    drawPlayers();
+    drawBall();
+    drawHUD();
+    drawOverlay();
+  }
+
+  function gameLoop(timestamp) {
+    const dt = game.lastTimestamp ? (timestamp - game.lastTimestamp) / 1000 : 0;
+    game.lastTimestamp = timestamp;
+    update(dt);
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // === PWA / INSTALL HINT ===
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js').catch(err => console.warn('Service worker registratie mislukt:', err));
+    });
+  }
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  if (isIOS && !isStandalone && !localStorage.getItem('pocket-five-hide-install-hint')) {
+    installHint.style.display = 'block';
+  }
+  document.getElementById('closeHint').addEventListener('click', () => {
+    localStorage.setItem('pocket-five-hide-install-hint', '1');
+    installHint.style.display = 'none';
+  });
+
+  // === INIT ===
+  // Pause cheer when the tab/app goes to background (saves audio battery, avoids stuck audio on iOS)
+  document.addEventListener('visibilitychange', () => {
+    const active = [audio.currentCheer, audio.goalCheer].filter(Boolean);
+    if (document.hidden) {
+      active.forEach(a => a.pause());
+    } else {
+      active.forEach(a => {
+        const p = a.play();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      });
+    }
+  });
+
+  resizeCanvas();
+  resetPlayersToFormation();
+  setupAudio();
+  loadAssets(() => {
+    game.assetsReady = true;
+    loading.style.display = 'none';
+    requestAnimationFrame(gameLoop);
+  });
+})();
+</script>
+</body>
+</html>
