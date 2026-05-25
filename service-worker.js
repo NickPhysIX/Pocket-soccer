@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pocket-five-aside-v2-1';
+const CACHE_NAME = 'pocket-five-aside-v2-3-camera';
 const ASSETS = [
   './',
   './index.html',
@@ -6,15 +6,15 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './icon-1024.png',
-  './assets/player.png',
-  './assets/teammate.png',
-  './assets/opponent.png',
-  './assets/keeper_home.png',
-  './assets/keeper_away.png',
-  './assets/ball.png',
-  './assets/goal.png',
-  './assets/audio/cheer1.mp3',
-  './assets/audio/cheer3.mp3'
+  './player.png',
+  './teammate.png',
+  './opponent.png',
+  './keeper_home.png',
+  './keeper_away.png',
+  './ball.png',
+  './goal.png',
+  './cheer1.mp3',
+  './cheer3.mp3'
 ];
 
 self.addEventListener('install', (event) => {

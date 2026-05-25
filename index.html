@@ -165,7 +165,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V1-build: eenvoudige possession-voetbal, anti-klonteren AI, keepers, score, rust/einde en PWA-bestanden.</p>
+    <p class="small">V2.3 build: root-only GitHub build met camera-zoom, duidelijke spelers, audio-cheers, keepers, score, rust/einde en PWA-bestanden.</p>
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -191,6 +191,10 @@
   const FIELD_HEIGHT = 700;
   const CENTER_X = FIELD_WIDTH / 2;
   const CENTER_Y = FIELD_HEIGHT / 2;
+  let VIEW_WIDTH = FIELD_WIDTH;
+  let VIEW_HEIGHT = FIELD_HEIGHT;
+  let VIEW_DPR = 1;
+  const camera = { x: CENTER_X, y: CENTER_Y, zoom: 1.45 };
   const PLAYER_RADIUS = 16;
   const CONTROL_RADIUS = 24;
   const PLAYER_SPEED = 205;       // pixels per second
@@ -226,13 +230,13 @@
 
   const assets = {};
   const assetList = {
-    player: './assets/player.png',
-    teammate: './assets/teammate.png',
-    opponent: './assets/opponent.png',
-    keeperHome: './assets/keeper_home.png',
-    keeperAway: './assets/keeper_away.png',
-    ball: './assets/ball.png',
-    goal: './assets/goal.png'
+    player: './player.png',
+    teammate: './teammate.png',
+    opponent: './opponent.png',
+    keeperHome: './keeper_home.png',
+    keeperAway: './keeper_away.png',
+    ball: './ball.png',
+    goal: './goal.png'
   };
 
   const game = {
@@ -280,7 +284,7 @@
   };
 
   function setupAudio() {
-    const sources = ['./assets/audio/cheer1.mp3', './assets/audio/cheer3.mp3'];
+    const sources = ['./cheer1.mp3', './cheer3.mp3'];
     audio.cheers = sources.map(src => {
       const a = new Audio(src);
       a.preload = 'auto';
@@ -448,22 +452,19 @@
   }
 
   function resizeCanvas() {
-    const targetRatio = FIELD_WIDTH / FIELD_HEIGHT;
-    const screenW = window.innerWidth;
-    const screenH = window.innerHeight;
-    const screenRatio = screenW / screenH;
-    let canvasW, canvasH;
-    if (screenRatio > targetRatio) {
-      canvasH = screenH;
-      canvasW = canvasH * targetRatio;
-    } else {
-      canvasW = screenW;
-      canvasH = canvasW / targetRatio;
-    }
-    canvas.style.width = canvasW + 'px';
-    canvas.style.height = canvasH + 'px';
-    canvas.width = FIELD_WIDTH;
-    canvas.height = FIELD_HEIGHT;
+    // Fill the actual device screen instead of fitting the whole pitch into view.
+    // The world remains 1200×700; rendering uses a camera so players stay readable.
+    const screenW = Math.max(320, window.innerWidth || FIELD_WIDTH);
+    const screenH = Math.max(240, window.innerHeight || FIELD_HEIGHT);
+    VIEW_DPR = Math.min(2, window.devicePixelRatio || 1);
+    VIEW_WIDTH = screenW;
+    VIEW_HEIGHT = screenH;
+
+    canvas.style.width = screenW + 'px';
+    canvas.style.height = screenH + 'px';
+    canvas.width = Math.round(screenW * VIEW_DPR);
+    canvas.height = Math.round(screenH * VIEW_DPR);
+    ctx.setTransform(VIEW_DPR, 0, 0, VIEW_DPR, 0, 0);
     ctx.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resizeCanvas);
@@ -1000,6 +1001,49 @@
     updateCrowdAudio();
   }
 
+  function getTargetCameraZoom() {
+    // iPhone landscape: close and readable. iPad/desktop: a little wider view.
+    const shortest = Math.min(VIEW_WIDTH, VIEW_HEIGHT);
+    if (shortest < 430) return 1.78;
+    if (shortest < 620) return 1.58;
+    return 1.38;
+  }
+
+  function updateCamera() {
+    const focus = getUserPlayer() || ball.owner || ball;
+    const desiredZoom = getTargetCameraZoom();
+    camera.zoom += (desiredZoom - camera.zoom) * 0.08;
+
+    // Look slightly ahead in the direction of play/possession so you see where you are going.
+    const leadX = ball.owner ? ball.owner.facingX * 90 : clamp(ball.vx * 0.18, -120, 120);
+    const leadY = ball.owner ? ball.owner.facingY * 45 : clamp(ball.vy * 0.12, -80, 80);
+    const targetX = clamp(focus.x + leadX, 0, FIELD_WIDTH);
+    const targetY = clamp(focus.y + leadY, 0, FIELD_HEIGHT);
+
+    camera.x += (targetX - camera.x) * 0.10;
+    camera.y += (targetY - camera.y) * 0.10;
+
+    const visibleW = VIEW_WIDTH / camera.zoom;
+    const visibleH = VIEW_HEIGHT / camera.zoom;
+    if (visibleW < FIELD_WIDTH) {
+      camera.x = clamp(camera.x, visibleW / 2, FIELD_WIDTH - visibleW / 2);
+    } else {
+      camera.x = CENTER_X;
+    }
+    if (visibleH < FIELD_HEIGHT) {
+      camera.y = clamp(camera.y, visibleH / 2, FIELD_HEIGHT - visibleH / 2);
+    } else {
+      camera.y = CENTER_Y;
+    }
+  }
+
+  function beginWorldRender() {
+    ctx.save();
+    ctx.translate(VIEW_WIDTH / 2, VIEW_HEIGHT / 2);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
+  }
+
   // === RENDERING ===
   function drawField() {
     ctx.fillStyle = '#2d7a2d';
@@ -1080,25 +1124,27 @@
 
   function drawHUD() {
     ctx.save();
-    ctx.font = '900 34px system-ui, sans-serif';
+    const bigFont = Math.max(28, Math.min(40, VIEW_WIDTH * 0.045));
+    const smallFont = Math.max(16, Math.min(24, VIEW_WIDTH * 0.024));
+    ctx.font = `900 ${bigFont}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.lineWidth = 6;
     ctx.strokeStyle = 'rgba(0,0,0,.75)';
     ctx.fillStyle = '#fff';
     const score = `${game.scoreHome} — ${game.scoreAway}`;
-    ctx.strokeText(score, CENTER_X, 24);
-    ctx.fillText(score, CENTER_X, 24);
+    ctx.strokeText(score, VIEW_WIDTH / 2, 20);
+    ctx.fillText(score, VIEW_WIDTH / 2, 20);
 
-    ctx.font = '800 22px system-ui, sans-serif';
+    ctx.font = `800 ${smallFont}px system-ui, sans-serif`;
     ctx.textAlign = 'right';
     const clock = `${formatTime(game.timeRemaining)}   ${game.half}e HELFT`;
-    ctx.strokeText(clock, FIELD_WIDTH - 28, 28);
-    ctx.fillText(clock, FIELD_WIDTH - 28, 28);
+    ctx.strokeText(clock, VIEW_WIDTH - 22, 24);
+    ctx.fillText(clock, VIEW_WIDTH - 22, 24);
 
     ctx.textAlign = 'left';
-    ctx.strokeText('THUIS  vs  UIT', 28, 28);
-    ctx.fillText('THUIS  vs  UIT', 28, 28);
+    ctx.strokeText('THUIS  vs  UIT', 22, 24);
+    ctx.fillText('THUIS  vs  UIT', 22, 24);
     ctx.restore();
   }
 
@@ -1106,30 +1152,35 @@
     if (!['KICKOFF','GOAL','HALFTIME','FULLTIME'].includes(game.state)) return;
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,.46)';
-    ctx.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+    ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 72px system-ui, sans-serif';
+    ctx.font = `900 ${Math.max(48, Math.min(78, VIEW_WIDTH * 0.08))}px system-ui, sans-serif`;
     ctx.lineWidth = 10;
     ctx.strokeStyle = 'rgba(0,0,0,.88)';
     ctx.fillStyle = '#fff';
-    ctx.strokeText(game.overlayText, CENTER_X, CENTER_Y - 20);
-    ctx.fillText(game.overlayText, CENTER_X, CENTER_Y - 20);
+    ctx.strokeText(game.overlayText, VIEW_WIDTH / 2, VIEW_HEIGHT / 2 - 20);
+    ctx.fillText(game.overlayText, VIEW_WIDTH / 2, VIEW_HEIGHT / 2 - 20);
     if (game.overlaySubtext) {
-      ctx.font = '800 34px system-ui, sans-serif';
+      ctx.font = `800 ${Math.max(26, Math.min(40, VIEW_WIDTH * 0.04))}px system-ui, sans-serif`;
       ctx.lineWidth = 6;
-      ctx.strokeText(game.overlaySubtext, CENTER_X, CENTER_Y + 54);
-      ctx.fillText(game.overlaySubtext, CENTER_X, CENTER_Y + 54);
+      ctx.strokeText(game.overlaySubtext, VIEW_WIDTH / 2, VIEW_HEIGHT / 2 + 54);
+      ctx.fillText(game.overlaySubtext, VIEW_WIDTH / 2, VIEW_HEIGHT / 2 + 54);
     }
     ctx.restore();
   }
 
   function render() {
+    ctx.setTransform(VIEW_DPR, 0, 0, VIEW_DPR, 0, 0);
     ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    updateCamera();
+    beginWorldRender();
     drawField();
     drawGoals();
     drawPlayers();
     drawBall();
+    ctx.restore();
     drawHUD();
     drawOverlay();
   }
