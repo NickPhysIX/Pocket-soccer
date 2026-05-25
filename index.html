@@ -104,8 +104,8 @@
       border-radius: 8px;
       font-size: 14px;
     }
-    #touchLayer { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 7; }
-    .touch .touchOnly { display: block !important; }
+    #touchLayer { display: none; position: absolute; inset: 0; pointer-events: auto; z-index: 7; }
+    html.touch .touchOnly, body.touch .touchOnly { display: block !important; }
     #joyBase, #joyKnob {
       display: none;
       position: absolute;
@@ -115,24 +115,30 @@
     }
     #joyBase { width: 100px; height: 100px; background: rgba(255,255,255,.24); border: 3px solid rgba(255,255,255,.55); }
     #joyKnob { width: 42px; height: 42px; background: rgba(255,255,255,.62); border: 2px solid rgba(0,0,0,.25); }
-    #shootBtn {
+    .actionBtn {
       display: none;
       position: absolute;
-      right: max(30px, env(safe-area-inset-right));
       bottom: max(30px, env(safe-area-inset-bottom));
-      width: 104px;
-      height: 104px;
+      width: 96px;
+      height: 96px;
       border-radius: 50%;
       z-index: 8;
       background: rgba(255,255,255,.35);
       color: #fff;
       border: 3px solid rgba(255,255,255,.65);
       text-shadow: 2px 2px 0 rgba(0,0,0,.75);
-      font-size: 16px;
+      font-size: 15px;
       pointer-events: auto;
       box-shadow: 0 8px 18px rgba(0,0,0,.3), inset 0 -8px 20px rgba(0,0,0,.18);
     }
-    #shootBtn.flash { background: rgba(255,230,80,.6); transform: scale(.96); }
+    #shootBtn { right: max(24px, env(safe-area-inset-right)); }
+    #passBtn { right: calc(max(24px, env(safe-area-inset-right)) + 108px); }
+    .actionBtn.flash, .actionBtn:active { background: rgba(255,230,80,.65); transform: scale(.94); }
+    @media (max-width: 520px) {
+      .actionBtn { width: 84px; height: 84px; font-size: 13px; }
+      #passBtn { right: calc(max(18px, env(safe-area-inset-right)) + 94px); }
+      #shootBtn { right: max(18px, env(safe-area-inset-right)); }
+    }
     #loading {
       position: absolute;
       color: white;
@@ -151,7 +157,7 @@
 
   <div id="menuPanel" class="panel">
     <h1>Pocket Five-a-Side</h1>
-    <p>Ren, schiet en scoor. Pijltjes/WASD + spatie, of joystick + shoot op iPad.</p>
+    <p>Ren, pass, schiet en scoor. Pijltjes/WASD, spatie = schiet, P/Shift = pass, of joystick + knoppen op iPad.</p>
     <strong>Moeilijkheid</strong>
     <div class="row" id="difficultyButtons">
       <button data-difficulty="easy">Makkelijk</button>
@@ -165,7 +171,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V2.3 build: root-only GitHub build met camera-zoom, duidelijke spelers, audio-cheers, keepers, score, rust/einde en PWA-bestanden.</p>
+    <p class="small">V4.3 build: QA-hardening, snellere camera, robuustere touch-controls en betere PWA-cache.</p>
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -178,7 +184,8 @@
     <div id="joyBase"></div>
     <div id="joyKnob"></div>
   </div>
-  <button id="shootBtn" class="touchOnly">⚽<br>SHOOT</button>
+  <button id="passBtn" class="touchOnly actionBtn">↗<br>PASS</button>
+  <button id="shootBtn" class="touchOnly actionBtn">⚽<br>SCHIET</button>
 
   <div id="installHint">📱 Tip: tik op het deel-icoon en kies “Zet op beginscherm” om als app te installeren!<button id="closeHint">×</button></div>
 </div>
@@ -194,14 +201,15 @@
   let VIEW_WIDTH = FIELD_WIDTH;
   let VIEW_HEIGHT = FIELD_HEIGHT;
   let VIEW_DPR = 1;
-  const camera = { x: CENTER_X, y: CENTER_Y, zoom: 1.45 };
+  const camera = { x: CENTER_X, y: CENTER_Y, zoom: 1.35 };
   const PLAYER_RADIUS = 16;
-  const CONTROL_RADIUS = 24;
-  const PLAYER_SPEED = 205;       // pixels per second
-  const AI_SPEED = 178;
-  const KEEPER_SPEED = 185;
+  const CONTROL_RADIUS = 30;
+  const PLAYER_SPEED = 245;       // pixels per second — slightly faster for touch control
+  const AI_SPEED = 188;
+  const KEEPER_SPEED = 190;
   const BALL_FRICTION_PER_FRAME = 0.97;
-  const SHOOT_POWER = 640;        // pixels per second
+  const SHOOT_POWER = 680;        // pixels per second
+  const PASS_POWER = 520;         // controlled passes to teammates
   const BALL_SIZE = 24;
   const GOAL_TOP = 245;
   const GOAL_BOTTOM = 455;
@@ -226,6 +234,7 @@
   const joyBase = document.getElementById('joyBase');
   const joyKnob = document.getElementById('joyKnob');
   const shootBtn = document.getElementById('shootBtn');
+  const passBtn = document.getElementById('passBtn');
   const installHint = document.getElementById('installHint');
 
   const assets = {};
@@ -252,12 +261,14 @@
     difficulty: 'normal',
     lastTimestamp: 0,
     assetsReady: false,
-    kickoffTeam: 'home'
+    kickoffTeam: 'home',
+    callForPassTimer: 0
   };
 
   const input = {
     up: false, down: false, left: false, right: false,
     shootQueued: false,
+    passQueued: false,
     joyActive: false,
     joyId: null,
     joyBaseX: 0, joyBaseY: 0,
@@ -265,8 +276,15 @@
     joyPower: 0
   };
 
-  const ball = { x: CENTER_X, y: CENTER_Y, vx: 0, vy: 0, owner: null, lastOwner: null, ownerCooldown: 0 };
+  const ball = { x: CENTER_X, y: CENTER_Y, vx: 0, vy: 0, owner: null, lastOwner: null, ownerCooldown: 0, passTarget: null, passTeam: null, passTimer: 0 };
   let players = [];
+
+  function resetInputState() {
+    input.up = false; input.down = false; input.left = false; input.right = false;
+    input.shootQueued = false;
+    input.passQueued = false;
+    endJoystick();
+  }
 
   // === AUDIO SYSTEM ===
   // Crowd cheers play while the home team has possession, and a short burst on goals.
@@ -456,6 +474,7 @@
     // The world remains 1200×700; rendering uses a camera so players stay readable.
     const screenW = Math.max(320, window.innerWidth || FIELD_WIDTH);
     const screenH = Math.max(240, window.innerHeight || FIELD_HEIGHT);
+    // Cap DPR at 2 for smoother canvas performance on mobile; sprites remain crisp via pixelated rendering.
     VIEW_DPR = Math.min(2, window.devicePixelRatio || 1);
     VIEW_WIDTH = screenW;
     VIEW_HEIGHT = screenH;
@@ -487,7 +506,8 @@
       aiTimer: 0,
       shootCooldown: 0,
       catchTimer: 0,
-      tackleCooldown: 0
+      tackleCooldown: 0,
+      callTimer: 0
     };
   }
 
@@ -495,11 +515,11 @@
     players = [];
     const home = [
       { id: 'homeKeeper', role: 'keeper', sprite: 'keeperHome', x: 60, y: 350, speed: KEEPER_SPEED },
-      { id: 'homeDef', sprite: 'teammate', x: 250, y: 350 },
-      { id: 'homeMid1', sprite: 'teammate', x: 450, y: 200 },
-      { id: 'homeMid2', sprite: 'teammate', x: 450, y: 500 },
-      { id: 'homeFwd1', sprite: 'teammate', x: 650, y: 200 },
-      { id: 'user', sprite: 'player', x: 650, y: 500, controlled: true }
+      { id: 'homeDef', sprite: 'teammate', x: 245, y: 350 },
+      { id: 'homeMid1', sprite: 'teammate', x: 420, y: 230 },
+      { id: 'homeMid2', sprite: 'teammate', x: 420, y: 470 },
+      { id: 'homeFwd1', sprite: 'teammate', x: 545, y: 265 },
+      { id: 'user', sprite: 'player', x: 565, y: 430, controlled: true }
     ];
     home.forEach(p => players.push(makePlayer({ ...p, team: 'home' })));
     const mirrorX = x => FIELD_WIDTH - x;
@@ -514,14 +534,45 @@
     away.forEach(p => players.push(makePlayer({ ...p, team: 'away' })));
   }
 
+  function getKickoffPlayer(team) {
+    if (team === 'home') return getUserPlayer() || players.find(p => p.team === 'home' && p.role !== 'keeper');
+    return players.find(p => p.id === 'awayFwd1') || players.find(p => p.team === 'away' && p.role !== 'keeper');
+  }
+
+  function setupKickoffPossession(kickoffTeam) {
+    const p = getKickoffPlayer(kickoffTeam);
+    if (!p) return;
+    const dir = kickoffTeam === 'home' ? 1 : -1;
+    // Put the kickoff player close to the centre spot and give them possession.
+    // This prevents the away AI from winning a loose centre ball and scoring instantly.
+    p.x = CENTER_X - dir * 28;
+    p.y = CENTER_Y;
+    p.facingX = dir;
+    p.facingY = 0;
+    p.targetX = p.x;
+    p.targetY = p.y;
+    ball.owner = p;
+    ball.lastOwner = null;
+    ball.ownerCooldown = 0;
+    ball.passTarget = null;
+    ball.passTeam = null;
+    ball.passTimer = 0;
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.x = p.x + p.facingX * 23;
+    ball.y = p.y - 4;
+  }
+
   function resetForKickoff(kickoffTeam = 'home') {
     resetPlayersToFormation();
-    ball.x = CENTER_X; ball.y = CENTER_Y; ball.vx = 0; ball.vy = 0; ball.owner = null; ball.lastOwner = null; ball.ownerCooldown = 0;
     game.kickoffTeam = kickoffTeam;
+    ball.x = CENTER_X; ball.y = CENTER_Y; ball.vx = 0; ball.vy = 0; ball.owner = null; ball.lastOwner = null; ball.ownerCooldown = 0; ball.passTarget = null; ball.passTeam = null; ball.passTimer = 0;
+    setupKickoffPossession(kickoffTeam);
   }
 
   function startMatch() {
     unlockAudio();  // iOS requires audio unlock on user gesture
+    resetInputState();
     stopAllCrowdAudio(true);
     game.scoreHome = 0;
     game.scoreAway = 0;
@@ -550,13 +601,14 @@
 
   // === INPUT ===
   window.addEventListener('keydown', (e) => {
-    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Spacebar'].includes(e.key)) e.preventDefault();
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Spacebar','Shift','P','p'].includes(e.key)) e.preventDefault();
     const k = e.key.toLowerCase();
     if (k === 'arrowup' || k === 'w') input.up = true;
     if (k === 'arrowdown' || k === 's') input.down = true;
     if (k === 'arrowleft' || k === 'a') input.left = true;
     if (k === 'arrowright' || k === 'd') input.right = true;
     if (k === ' ' || k === 'spacebar') input.shootQueued = true;
+    if (k === 'p' || k === 'shift') input.passQueued = true;
   }, { passive: false });
 
   window.addEventListener('keyup', (e) => {
@@ -567,11 +619,23 @@
     if (k === 'arrowright' || k === 'd') input.right = false;
   });
 
+  function startJoystick(clientX, clientY, id) {
+    if (game.state === 'MENU' || game.state === 'FULLTIME') return false;
+    input.joyActive = true;
+    input.joyId = id;
+    input.joyBaseX = clientX;
+    input.joyBaseY = clientY;
+    joyBase.style.display = 'block';
+    joyKnob.style.display = 'block';
+    updateJoystickVisual(clientX, clientY);
+    return true;
+  }
+
   function updateJoystickVisual(clientX, clientY) {
     const dx = clientX - input.joyBaseX;
     const dy = clientY - input.joyBaseY;
     const n = normalize(dx, dy);
-    const maxR = 40;
+    const maxR = 54;
     const r = Math.min(maxR, n.len);
     input.joyX = n.x;
     input.joyY = n.y;
@@ -582,7 +646,8 @@
     joyKnob.style.top = (input.joyBaseY + n.y * r) + 'px';
   }
 
-  function endJoystick() {
+  function endJoystick(id = null) {
+    if (id !== null && input.joyId !== id) return;
     input.joyActive = false;
     input.joyId = null;
     input.joyX = 0; input.joyY = 0; input.joyPower = 0;
@@ -590,48 +655,116 @@
     joyKnob.style.display = 'none';
   }
 
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  if (isTouchDevice) document.body.classList.add('touch');
+  function enableTouchMode() {
+    // Add the class to both <html> and <body>. Either one is enough for the CSS,
+    // but doing both makes the on-screen controls robust across browsers and future CSS tweaks.
+    document.documentElement.classList.add('touch');
+    document.body.classList.add('touch');
+  }
 
-  document.addEventListener('touchstart', (e) => {
-    if (game.state === 'MENU' || game.state === 'FULLTIME') return;
-    for (const t of e.changedTouches) {
-      if (!input.joyActive && t.clientX < window.innerWidth * 0.55) {
-        input.joyActive = true;
-        input.joyId = t.identifier;
-        input.joyBaseX = t.clientX;
-        input.joyBaseY = t.clientY;
-        joyBase.style.display = 'block';
-        joyKnob.style.display = 'block';
-        updateJoystickVisual(t.clientX, t.clientY);
-        e.preventDefault();
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches;
+  if (isTouchDevice) enableTouchMode();
+  window.addEventListener('touchstart', enableTouchMode, { once: true, passive: true });
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') enableTouchMode();
+  }, { once: true, passive: true });
+
+  function inJoystickZone(clientX, clientY) {
+    // Left-hand side of the screen is movement. Right side remains free for PASS/SCHIET buttons.
+    return clientX < window.innerWidth * 0.55;
+  }
+
+  if (window.PointerEvent) {
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      if (e.target === shootBtn || e.target === passBtn || !inJoystickZone(e.clientX, e.clientY) || input.joyActive) return;
+      if (startJoystick(e.clientX, e.clientY, e.pointerId)) e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('pointermove', (e) => {
+      if (!input.joyActive || input.joyId !== e.pointerId) return;
+      updateJoystickVisual(e.clientX, e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('pointerup', (e) => endJoystick(e.pointerId), { passive: false });
+    document.addEventListener('pointercancel', (e) => endJoystick(e.pointerId), { passive: false });
+  } else {
+    document.addEventListener('touchstart', (e) => {
+      if (game.state === 'MENU' || game.state === 'FULLTIME') return;
+      for (const t of e.changedTouches) {
+        if (!input.joyActive && inJoystickZone(t.clientX, t.clientY)) {
+          startJoystick(t.clientX, t.clientY, t.identifier);
+          e.preventDefault();
+        }
       }
-    }
-  }, { passive: false });
+    }, { passive: false });
 
-  document.addEventListener('touchmove', (e) => {
-    if (!input.joyActive) return;
-    for (const t of e.changedTouches) {
-      if (t.identifier === input.joyId) {
-        updateJoystickVisual(t.clientX, t.clientY);
-        e.preventDefault();
-        break;
+    document.addEventListener('touchmove', (e) => {
+      if (!input.joyActive) return;
+      for (const t of e.changedTouches) {
+        if (t.identifier === input.joyId) {
+          updateJoystickVisual(t.clientX, t.clientY);
+          e.preventDefault();
+          break;
+        }
       }
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+      for (const t of e.changedTouches) endJoystick(t.identifier);
+    }, { passive: false });
+    document.addEventListener('touchcancel', () => endJoystick(), { passive: false });
+  }
+
+  let lastActionButtonAt = 0;
+
+  function flashActionButton(btn) {
+    btn.classList.add('flash');
+    setTimeout(() => btn.classList.remove('flash'), 150);
+  }
+
+  function queueAction(action) {
+    if (game.state !== 'PLAYING') return false;
+    if (action === 'shoot') input.shootQueued = true;
+    if (action === 'pass') input.passQueued = true;
+    return true;
+  }
+
+  function triggerActionButton(btn, action, e) {
+    const now = performance.now();
+    // Mobile browsers can emit pointer/touch/click for the same tap. The action itself is queued,
+    // so one tap should only count once.
+    if (now - lastActionButtonAt < 110) {
+      if (e) e.preventDefault();
+      return;
     }
-  }, { passive: false });
+    lastActionButtonAt = now;
+    if (queueAction(action)) {
+      flashActionButton(btn);
+      if (navigator.vibrate) navigator.vibrate(10);
+    }
+    if (e) e.preventDefault();
+  }
 
-  document.addEventListener('touchend', (e) => {
-    for (const t of e.changedTouches) if (t.identifier === input.joyId) endJoystick();
-  }, { passive: false });
-  document.addEventListener('touchcancel', endJoystick, { passive: false });
+  function bindActionButton(btn, action) {
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      enableTouchMode();
+      triggerActionButton(btn, action, e);
+    }, { passive: false });
+    btn.addEventListener('touchstart', (e) => {
+      enableTouchMode();
+      triggerActionButton(btn, action, e);
+    }, { passive: false });
+    btn.addEventListener('click', (e) => {
+      // Keeps the buttons usable in desktop emulation, but suppresses ghost-click duplicates.
+      triggerActionButton(btn, action, e);
+    });
+  }
 
-  shootBtn.addEventListener('touchstart', (e) => {
-    input.shootQueued = true;
-    shootBtn.classList.add('flash');
-    setTimeout(() => shootBtn.classList.remove('flash'), 120);
-    e.preventDefault();
-  }, { passive: false });
-  shootBtn.addEventListener('click', (e) => { input.shootQueued = true; e.preventDefault(); });
+  bindActionButton(shootBtn, 'shoot');
+  bindActionButton(passBtn, 'pass');
 
   document.getElementById('startBtn').addEventListener('click', startMatch);
   document.getElementById('rematchBtn').addEventListener('click', () => {
@@ -676,10 +809,10 @@
     if (input.right) dx += 1;
     if (input.up) dy -= 1;
     if (input.down) dy += 1;
-    if (input.joyActive && input.joyPower > 0.05) {
+    if (input.joyActive && input.joyPower > 0.04) {
       dx += input.joyX;
       dy += input.joyY;
-      power = input.joyPower;
+      power = Math.max(0.35, input.joyPower);
     }
     const n = normalize(dx, dy);
     if (n.len > 0) {
@@ -702,13 +835,159 @@
     return best;
   }
 
+  function fieldPlayers(team) {
+    return players.filter(p => p.team === team && p.role !== 'keeper');
+  }
+
+  function distancePointToSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax, aby = by - ay;
+    const apx = px - ax, apy = py - ay;
+    const ab2 = abx * abx + aby * aby || 0.0001;
+    const t = clamp((apx * abx + apy * aby) / ab2, 0, 1);
+    const cx = ax + abx * t;
+    const cy = ay + aby * t;
+    return Math.hypot(px - cx, py - cy);
+  }
+
+  function isPassingLaneOpen(passer, receiver, laneWidth = 38) {
+    for (const o of players) {
+      if (o.team === passer.team) continue;
+      // Ignore opponents almost on top of the passer; those are handled as pressure.
+      if (dist(o.x, o.y, passer.x, passer.y) < 26) continue;
+      const d = distancePointToSegment(o.x, o.y, passer.x, passer.y, receiver.x, receiver.y);
+      if (d < laneWidth) return false;
+    }
+    return true;
+  }
+
+  function nearestOpponentDistance(player) {
+    let best = Infinity;
+    for (const o of players) {
+      if (o.team === player.team) continue;
+      best = Math.min(best, dist(player.x, player.y, o.x, o.y));
+    }
+    return best;
+  }
+
+  function isReceiverOpen(receiver, passer = null) {
+    const opponentDistance = nearestOpponentDistance(receiver);
+    if (opponentDistance < 70) return false;
+    if (passer && !isPassingLaneOpen(passer, receiver)) return false;
+    return true;
+  }
+
+  function bestPassTargetFor(passer, preferUser = false) {
+    const dir = passer.team === 'home' ? 1 : -1;
+    const candidates = fieldPlayers(passer.team).filter(p => p !== passer);
+    let best = null;
+    let bestScore = -Infinity;
+    for (const c of candidates) {
+      const d = dist(passer.x, passer.y, c.x, c.y);
+      if (d < 70 || d > 560) continue;
+      const laneOpen = isPassingLaneOpen(passer, c);
+      const openDistance = nearestOpponentDistance(c);
+      let score = 0;
+      score += 120 - Math.abs(d - 260) * 0.22;       // sweet spot: not too short, not too long
+      score += (c.x - passer.x) * dir * 0.35;        // prefer forward passes
+      score -= Math.abs(c.y - passer.y) * 0.10;
+      score += laneOpen ? 110 : -180;
+      score += clamp(openDistance - 70, -40, 140) * 0.8;
+      if (c.controlled) score += preferUser ? 220 : 55;
+      if (c.role === 'keeper') score -= 500;
+      if (score > bestScore) { best = c; bestScore = score; }
+    }
+    return best;
+  }
+
+  function passBallTo(passer, receiver, power = PASS_POWER) {
+    if (!passer || !receiver) return false;
+    const n = normalize(receiver.x - passer.x, receiver.y - passer.y);
+    if (n.len === 0) return false;
+    ball.owner = null;
+    ball.lastOwner = passer;
+    ball.ownerCooldown = 0.16;
+    ball.passTarget = receiver;
+    ball.passTeam = passer.team;
+    ball.passTimer = 1.45;
+    ball.vx = n.x * power;
+    ball.vy = n.y * power;
+    ball.x = passer.x + n.x * 24;
+    ball.y = passer.y + n.y * 24;
+    passer.shootCooldown = 0.28;
+    passer.facingX = n.x;
+    passer.facingY = n.y;
+    receiver.callTimer = Math.max(receiver.callTimer, 0.45);
+    return true;
+  }
+
+  function shootTowardGoal(player, power = SHOOT_POWER) {
+    const goalX = player.team === 'home' ? FIELD_WIDTH + 80 : -80;
+    // Aim into the goal mouth, not simply in the direction the sprite happened to face.
+    const yInfluence = (player.y - GOAL_CENTER_Y) * 0.22;
+    const facingInfluence = player.facingY * 40;
+    const targetY = clamp(GOAL_CENTER_Y + yInfluence + facingInfluence, GOAL_TOP + 28, GOAL_BOTTOM - 28);
+    shootBall(player, goalX - player.x, targetY - player.y, power);
+  }
+
+  function handleUserPassAction(user) {
+    if (!user) return;
+    if (ball.owner === user && user.shootCooldown <= 0) {
+      const target = bestPassTargetFor(user, false);
+      if (target) passBallTo(user, target);
+      return;
+    }
+
+    // Without the ball, PASS works as a call/request. A home teammate will pass only if
+    // the user is plausibly free and the lane is not blocked.
+    user.callTimer = 1.15;
+    game.callForPassTimer = 1.15;
+    const owner = getTeamBallOwner('home');
+    if (owner && owner !== user && owner.shootCooldown <= 0 && isReceiverOpen(user, owner) && dist(owner.x, owner.y, user.x, user.y) < 560) {
+      passBallTo(owner, user, PASS_POWER * 1.04);
+      game.callForPassTimer = 0;
+    }
+  }
+
+  function getDefensiveRank(player) {
+    const ranked = fieldPlayers(player.team)
+      .slice()
+      .sort((a, b) => dist(a.x, a.y, ball.x, ball.y) - dist(b.x, b.y, ball.x, ball.y));
+    return ranked.indexOf(player);
+  }
+
   function updateAIPlayer(player, dt, closestHome, closestAway) {
     const diff = DIFFICULTIES[game.difficulty];
-    const speedMult = player.team === 'away' ? diff.speedMult : 1;
-    const reaction = (player.team === 'away' ? diff.reactionFrames : 8) / 60;
+    const speedMult = player.team === 'away' ? diff.speedMult : 1.02;
+    const reaction = (player.team === 'away' ? diff.reactionFrames : 5) / 60;
     player.aiTimer -= dt;
 
+    if (!ball.owner && ball.passTarget === player) {
+      // Intended receiver actively comes to the pass.
+      moveToward(player, ball.x, ball.y, AI_SPEED * 1.15 * speedMult, dt, 3);
+      clampPlayer(player);
+      return;
+    }
+
     if (ball.owner === player) {
+      // Home AI listens to a user call for pass when the lane is open.
+      const user = getUserPlayer();
+      if (player.team === 'home' && user && user !== player && game.callForPassTimer > 0 && player.shootCooldown <= 0) {
+        if (isReceiverOpen(user, player) && dist(player.x, player.y, user.x, user.y) < 560) {
+          passBallTo(player, user, PASS_POWER * 1.05);
+          game.callForPassTimer = 0;
+          return;
+        }
+      }
+
+      const pressure = players.some(o => o.team !== player.team && dist(o.x, o.y, player.x, player.y) < 52);
+      if (pressure && player.shootCooldown <= 0) {
+        const target = bestPassTargetFor(player, false);
+        if (target && isPassingLaneOpen(player, target)) {
+          passBallTo(player, target, PASS_POWER * 1.02);
+          return;
+        }
+      }
+
       // Carry the ball toward the opponent goal. Shoot when close enough.
       const targetGoalX = player.team === 'home' ? FIELD_WIDTH + 30 : -30;
       const targetGoalY = GOAL_CENTER_Y + (Math.random() - 0.5) * 50;
@@ -717,9 +996,8 @@
         player.targetY = targetGoalY;
         player.aiTimer = reaction;
       }
-      const pressure = players.some(o => o.team !== player.team && dist(o.x, o.y, player.x, player.y) < 45);
-      const dodgeY = pressure ? (Math.random() - 0.5) * 120 : 0;
-      moveToward(player, player.targetX, player.targetY + dodgeY, AI_SPEED * 1.05 * speedMult, dt);
+      const dodgeY = pressure ? (Math.random() - 0.5) * 95 : 0;
+      moveToward(player, player.targetX, player.targetY + dodgeY, AI_SPEED * 1.03 * speedMult, dt);
       const goalDist = Math.abs((player.team === 'home' ? FIELD_WIDTH : 0) - player.x);
       if (goalDist < 260 && player.shootCooldown <= 0) {
         aiShoot(player);
@@ -728,21 +1006,40 @@
       const ownHasBall = ball.owner && ball.owner.team === player.team;
       const opponentHasBall = ball.owner && ball.owner.team !== player.team;
       const closestForTeam = player.team === 'home' ? closestHome : closestAway;
-      const shouldChase = (closestForTeam === player) && (!ownHasBall);
+      const rank = getDefensiveRank(player);
 
-      if (shouldChase || opponentHasBall && closestForTeam === player) {
+      if (opponentHasBall) {
+        // Active defence: nearest two field players press; others block lanes between ball and own goal.
+        if (rank <= 1) {
+          if (player.aiTimer <= 0) {
+            player.targetX = ball.x;
+            player.targetY = ball.y;
+            player.aiTimer = reaction;
+          }
+          moveToward(player, player.targetX, player.targetY, AI_SPEED * 1.12 * speedMult, dt);
+        } else {
+          const ownGoalX = player.team === 'home' ? 45 : FIELD_WIDTH - 45;
+          const blockX = ball.x + (ownGoalX - ball.x) * (rank === 2 ? 0.34 : 0.52);
+          const blockY = ball.y + (GOAL_CENTER_Y - ball.y) * (rank === 2 ? 0.24 : 0.45);
+          const offsetY = (rank % 2 === 0 ? -58 : 58);
+          moveToward(player, clamp(blockX, 70, FIELD_WIDTH - 70), clamp(blockY + offsetY, 80, FIELD_HEIGHT - 80), AI_SPEED * 0.95 * speedMult, dt, 14);
+        }
+      } else if (!ownHasBall && (closestForTeam === player || rank === 0)) {
         if (player.aiTimer <= 0) {
           player.targetX = ball.x;
           player.targetY = ball.y;
           player.aiTimer = reaction;
         }
-        moveToward(player, player.targetX, player.targetY, AI_SPEED * speedMult, dt);
+        moveToward(player, player.targetX, player.targetY, AI_SPEED * 1.05 * speedMult, dt);
       } else if (ownHasBall) {
-        // Support position: shift formation toward the attacking goal.
-        const shift = player.team === 'home' ? 150 : -150;
-        moveToward(player, clamp(player.homeX + shift, 60, FIELD_WIDTH - 60), player.homeY, AI_SPEED * 0.82 * speedMult, dt, 18);
+        // Support position: create passing triangles and stretch toward the attacking goal.
+        const shift = player.team === 'home' ? 175 : -175;
+        const laneOffset = (rank % 2 === 0 ? -45 : 45);
+        moveToward(player, clamp(player.homeX + shift, 60, FIELD_WIDTH - 60), clamp(player.homeY + laneOffset, 70, FIELD_HEIGHT - 70), AI_SPEED * 0.88 * speedMult, dt, 18);
       } else {
-        moveToward(player, player.homeX, player.homeY, AI_SPEED * 0.75 * speedMult, dt, 18);
+        // No clear possession: keep shape but drift toward the ball side.
+        const ballSideShift = clamp((ball.x - CENTER_X) * 0.18, -75, 75);
+        moveToward(player, clamp(player.homeX + ballSideShift, 60, FIELD_WIDTH - 60), player.homeY, AI_SPEED * 0.78 * speedMult, dt, 18);
       }
     }
     clampPlayer(player);
@@ -781,6 +1078,9 @@
     ball.owner = null;
     ball.lastOwner = player;
     ball.ownerCooldown = 0.30;
+    ball.passTarget = null;
+    ball.passTeam = null;
+    ball.passTimer = 0;
     ball.vx = n.x * power;
     ball.vy = n.y * power;
     ball.x = player.x + n.x * 24;
@@ -805,8 +1105,12 @@
     for (const p of players) {
       p.shootCooldown = Math.max(0, p.shootCooldown - dt);
       p.tackleCooldown = Math.max(0, p.tackleCooldown - dt);
+      p.callTimer = Math.max(0, p.callTimer - dt);
     }
     ball.ownerCooldown = Math.max(0, ball.ownerCooldown - dt);
+    ball.passTimer = Math.max(0, ball.passTimer - dt);
+    if (ball.passTimer <= 0) { ball.passTarget = null; ball.passTeam = null; }
+    game.callForPassTimer = Math.max(0, game.callForPassTimer - dt);
   }
 
   function updateBall(dt) {
@@ -854,17 +1158,49 @@
         if (p.team === ball.owner.team || p.tackleCooldown > 0) continue;
         if (dist(p.x, p.y, ball.owner.x, ball.owner.y) < CONTROL_RADIUS + 4) {
           p.tackleCooldown = 0.22;
-          const chance = p.team === 'away' ? diff.tackleChance : 0.40;
+          const chance = p.team === 'away' ? diff.tackleChance : 0.48;
           if (Math.random() < chance) {
             ball.owner = p;
             ball.lastOwner = null;
             ball.ownerCooldown = 0;
+            ball.passTarget = null;
+            ball.passTeam = null;
+            ball.passTimer = 0;
             p.tackleCooldown = 0.45;
             return;
           }
         }
       }
       return;
+    }
+
+    // Intended pass receiver gets a larger control window, but opponents can still intercept.
+    if (ball.passTarget && ball.passTimer > 0) {
+      const receiver = ball.passTarget;
+      const receiverD = dist(receiver.x, receiver.y, ball.x, ball.y);
+      if (receiverD < CONTROL_RADIUS + 14) {
+        ball.owner = receiver;
+        ball.lastOwner = null;
+        ball.ownerCooldown = 0;
+        ball.passTarget = null;
+        ball.passTeam = null;
+        ball.passTimer = 0;
+        receiver.catchTimer = 0;
+        return;
+      }
+      for (const p of players) {
+        if (p.team === ball.passTeam) continue;
+        if (dist(p.x, p.y, ball.x, ball.y) < CONTROL_RADIUS - 4) {
+          ball.owner = p;
+          ball.lastOwner = null;
+          ball.ownerCooldown = 0;
+          ball.passTarget = null;
+          ball.passTeam = null;
+          ball.passTimer = 0;
+          p.catchTimer = 0;
+          return;
+        }
+      }
     }
 
     // Free ball pickup: nearest eligible player catches/controls it.
@@ -879,6 +1215,9 @@
       ball.owner = nearest;
       ball.lastOwner = null;
       ball.ownerCooldown = 0;
+      ball.passTarget = null;
+      ball.passTeam = null;
+      ball.passTimer = 0;
       nearest.catchTimer = 0;
     }
   }
@@ -963,6 +1302,7 @@
     updateStateTimers(dt);
     if (game.state !== 'PLAYING') {
       input.shootQueued = false;
+      input.passQueued = false;
       if (game.state === 'GOAL') {
         stopCheer();
       } else {
@@ -985,9 +1325,13 @@
       else updateAIPlayer(p, dt, closestHome, closestAway);
     }
 
-    if (input.shootQueued && user && ball.owner === user && user.shootCooldown <= 0) {
-      shootBall(user, user.facingX, user.facingY, SHOOT_POWER);
+    if (input.passQueued && user) {
+      handleUserPassAction(user);
     }
+    if (input.shootQueued && user && ball.owner === user && user.shootCooldown <= 0) {
+      shootTowardGoal(user, SHOOT_POWER);
+    }
+    input.passQueued = false;
     input.shootQueued = false;
 
     handlePlayerCollisions();
@@ -1001,27 +1345,57 @@
     updateCrowdAudio();
   }
 
-  function getTargetCameraZoom() {
-    // iPhone landscape: close and readable. iPad/desktop: a little wider view.
+  function getBaseCameraZoom() {
+    // Tight enough to make sprites readable; device-dependent baseline.
     const shortest = Math.min(VIEW_WIDTH, VIEW_HEIGHT);
-    if (shortest < 430) return 1.78;
-    if (shortest < 620) return 1.58;
-    return 1.38;
+    if (shortest < 430) return 1.66;   // iPhone landscape
+    if (shortest < 620) return 1.46;   // large phone / small tablet
+    return 1.28;                       // iPad / desktop
+  }
+
+  function getTargetCameraZoom(distanceToBall) {
+    // Keep the camera anchored on the user, but zoom out as the ball moves away.
+    // This gives local control when the ball is near, and tactical context when play leaves the screen.
+    const base = getBaseCameraZoom();
+    const far = clamp((distanceToBall - 210) / 560, 0, 1);
+    const zoomOut = far * (base < 1.35 ? 0.20 : 0.38);
+    return clamp(base - zoomOut, 1.06, base);
   }
 
   function updateCamera() {
-    const focus = getUserPlayer() || ball.owner || ball;
-    const desiredZoom = getTargetCameraZoom();
-    camera.zoom += (desiredZoom - camera.zoom) * 0.08;
+    const user = getUserPlayer();
+    let focusX, focusY;
+    let distanceToBall = 0;
+    if (user) {
+      distanceToBall = dist(user.x, user.y, ball.x, ball.y);
+      const far = clamp((distanceToBall - 160) / 620, 0, 1);
+      let blend = 0.08 + far * 0.36;
+      if (ball.owner === user) blend = 0.08;
+      if (ball.owner && ball.owner.team !== 'home') blend = 0.18 + far * 0.30;
+      // Anchor remains the user; ball only pulls the focus when it is far away.
+      focusX = user.x + (ball.x - user.x) * blend;
+      focusY = user.y + (ball.y - user.y) * blend;
+    } else if (ball.owner) {
+      focusX = ball.owner.x;
+      focusY = ball.owner.y;
+      distanceToBall = 0;
+    } else {
+      focusX = ball.x;
+      focusY = ball.y;
+      distanceToBall = 0;
+    }
 
-    // Look slightly ahead in the direction of play/possession so you see where you are going.
-    const leadX = ball.owner ? ball.owner.facingX * 90 : clamp(ball.vx * 0.18, -120, 120);
-    const leadY = ball.owner ? ball.owner.facingY * 45 : clamp(ball.vy * 0.12, -80, 80);
-    const targetX = clamp(focus.x + leadX, 0, FIELD_WIDTH);
-    const targetY = clamp(focus.y + leadY, 0, FIELD_HEIGHT);
+    const desiredZoom = getTargetCameraZoom(distanceToBall);
+    camera.zoom += (desiredZoom - camera.zoom) * 0.16;
 
-    camera.x += (targetX - camera.x) * 0.10;
-    camera.y += (targetY - camera.y) * 0.10;
+    const leadX = user ? user.facingX * 65 : (ball.owner ? ball.owner.facingX * 70 : clamp(ball.vx * 0.15, -100, 100));
+    const leadY = user ? user.facingY * 32 : (ball.owner ? ball.owner.facingY * 35 : clamp(ball.vy * 0.10, -60, 60));
+    const targetX = clamp(focusX + leadX, 0, FIELD_WIDTH);
+    const targetY = clamp(focusY + leadY, 0, FIELD_HEIGHT);
+
+    const cameraFollow = distanceToBall > 360 ? 0.24 : 0.20;
+    camera.x += (targetX - camera.x) * cameraFollow;
+    camera.y += (targetY - camera.y) * cameraFollow;
 
     const visibleW = VIEW_WIDTH / camera.zoom;
     const visibleH = VIEW_HEIGHT / camera.zoom;
@@ -1074,31 +1448,58 @@
     ctx.beginPath(); ctx.moveTo(FIELD_WIDTH - 20, GOAL_TOP); ctx.lineTo(FIELD_WIDTH - 20, GOAL_BOTTOM); ctx.stroke();
   }
 
+  function drawMissingAssetBox(x, y, w, h, label) {
+    ctx.save();
+    ctx.fillStyle = '#ff00cc';
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 3;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label || 'MISSING', x + w / 2, y + h / 2);
+    ctx.restore();
+  }
+
   function drawGoals() {
     const img = assets.goal;
-    if (!img) return;
+    if (!img) {
+      drawMissingAssetBox(0, GOAL_TOP - 18, 44, GOAL_BOTTOM - GOAL_TOP + 36, 'GOAL');
+      drawMissingAssetBox(FIELD_WIDTH - 44, GOAL_TOP - 18, 44, GOAL_BOTTOM - GOAL_TOP + 36, 'GOAL');
+      return;
+    }
+    // Goal sprite has opening facing left (post on the right side of the sprite).
+    // We render so that the goal opening sits AT the field's goal line (x=20 left, x=FIELD_WIDTH-20 right).
     const goalH = GOAL_BOTTOM - GOAL_TOP + 32;
     const goalW = goalH * img.width / img.height;
     const y = GOAL_CENTER_Y - goalH / 2;
-    // Left goal: flip horizontally so the opening faces right.
+
+    // Right goal: sprite as-is, opening (left side of sprite) at right goal line.
+    // Sprite right edge sits past the field; goal mouth aligns with sprite's left edge.
+    ctx.drawImage(img, FIELD_WIDTH - 20, y, goalW, goalH);
+
+    // Left goal: flip horizontally. Sprite left edge sits past the field; goal mouth aligns with sprite's right edge.
     ctx.save();
-    ctx.translate(goalW * 0.52, y);
+    ctx.translate(20, y);
     ctx.scale(-1, 1);
     ctx.drawImage(img, 0, 0, goalW, goalH);
     ctx.restore();
-    // Right goal: as-is, opening faces left.
-    ctx.drawImage(img, FIELD_WIDTH - goalW * 0.52, y, goalW, goalH);
   }
 
   function drawPlayerSprite(player) {
     const img = assets[player.sprite];
-    if (!img) return;
     const targetH = player.role === 'keeper' ? 72 : 68;
+    if (!img) {
+      drawMissingAssetBox(player.x - 17, player.y - targetH, 34, targetH, 'P');
+      return;
+    }
     const targetW = targetH * img.width / img.height;
     const x = player.x - targetW / 2;
     const y = player.y - targetH;
     if (player.controlled) {
-      const pulse = 0.65 + 0.25 * Math.sin(performance.now() / 160);
+      const pulse = 0.65 + 0.25 * Math.sin(performance.now() / 120);
       ctx.save();
       ctx.globalAlpha = pulse;
       ctx.strokeStyle = 'white';
@@ -1118,8 +1519,136 @@
 
   function drawBall() {
     const img = assets.ball;
-    if (!img) return;
+    if (!img) {
+      ctx.save();
+      ctx.fillStyle = '#ff00cc';
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_SIZE / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     ctx.drawImage(img, ball.x - BALL_SIZE/2, ball.y - BALL_SIZE/2, BALL_SIZE, BALL_SIZE);
+  }
+
+  function drawMinimap() {
+    // Small tactical overview map in top-center area (below score). Helps compensate for
+    // the follow-camera's limited field-of-view by showing all 12 player positions + ball.
+    // It scales down on very small/landscape screens so it does not crowd the HUD.
+    const compactHud = Math.min(VIEW_WIDTH, VIEW_HEIGHT) < 430;
+    const mapW = compactHud
+      ? Math.min(140, Math.max(96, VIEW_WIDTH * 0.18))
+      : Math.min(180, Math.max(130, VIEW_WIDTH * 0.22));
+    const mapH = mapW * (FIELD_HEIGHT / FIELD_WIDTH);
+    const mapX = (VIEW_WIDTH - mapW) / 2;
+    const mapY = compactHud ? 58 : 72;
+    const sx = mapW / FIELD_WIDTH;
+    const sy = mapH / FIELD_HEIGHT;
+
+    ctx.save();
+    // Background
+    ctx.fillStyle = 'rgba(0, 50, 0, 0.75)';
+    ctx.fillRect(mapX, mapY, mapW, mapH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(mapX, mapY, mapW, mapH);
+    // Center line
+    ctx.beginPath();
+    ctx.moveTo(mapX + mapW / 2, mapY);
+    ctx.lineTo(mapX + mapW / 2, mapY + mapH);
+    ctx.stroke();
+
+    // Players as small dots
+    for (const p of players) {
+      let color;
+      if (p.controlled) color = '#ffd84a';        // yellow = user
+      else if (p.role === 'keeper') color = p.team === 'home' ? '#3acc3a' : '#ff8d2c';
+      else color = p.team === 'home' ? '#ff4a4a' : '#4a8dff';
+      ctx.fillStyle = color;
+      const dotSize = p.controlled ? 3.5 : 2.5;
+      ctx.beginPath();
+      ctx.arc(mapX + p.x * sx, mapY + p.y * sy, dotSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Ball as white dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(mapX + ball.x * sx, mapY + ball.y * sy, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+
+  function worldToScreen(wx, wy) {
+    return {
+      x: (wx - camera.x) * camera.zoom + VIEW_WIDTH / 2,
+      y: (wy - camera.y) * camera.zoom + VIEW_HEIGHT / 2
+    };
+  }
+
+  function drawBallDirectionMarker() {
+    const user = getUserPlayer();
+    if (!user || game.state === 'MENU') return;
+    const ballScreen = worldToScreen(ball.x, ball.y);
+    const margin = 58;
+    const onScreen = ballScreen.x >= margin && ballScreen.x <= VIEW_WIDTH - margin && ballScreen.y >= margin && ballScreen.y <= VIEW_HEIGHT - margin;
+    const d = dist(user.x, user.y, ball.x, ball.y);
+
+    ctx.save();
+    if (onScreen) {
+      // If the ball is visible but far, give it a quick halo so it is easy to reacquire.
+      if (d > 360 && ball.owner !== user) {
+        const pulse = 0.65 + 0.25 * Math.sin(performance.now() / 120);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = '#fff06a';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(ballScreen.x, ballScreen.y, 22, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    // Off-screen: draw an arrow at the screen edge pointing toward the ball.
+    const cx = VIEW_WIDTH / 2;
+    const cy = VIEW_HEIGHT / 2;
+    const dx = ballScreen.x - cx;
+    const dy = ballScreen.y - cy;
+    const n = normalize(dx, dy);
+    if (n.len === 0) { ctx.restore(); return; }
+    const x = clamp(cx + n.x * Math.min(VIEW_WIDTH / 2 - margin, Math.abs(dx)), margin, VIEW_WIDTH - margin);
+    const y = clamp(cy + n.y * Math.min(VIEW_HEIGHT / 2 - margin, Math.abs(dy)), margin, VIEW_HEIGHT - margin);
+    const angle = Math.atan2(n.y, n.x);
+
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.fillStyle = 'rgba(255, 240, 106, 0.92)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.78)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(24, 0);
+    ctx.lineTo(-16, -15);
+    ctx.lineTo(-8, 0);
+    ctx.lineTo(-16, 15);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.rotate(-angle);
+    const markerFont = Math.min(VIEW_WIDTH, VIEW_HEIGHT) < 430 ? 11 : 13;
+    ctx.font = `900 ${markerFont}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(0,0,0,.85)';
+    ctx.fillStyle = '#fff';
+    const labelY = Math.min(VIEW_WIDTH, VIEW_HEIGHT) < 430 ? 26 : 30;
+    ctx.strokeText('BAL', 0, labelY);
+    ctx.fillText('BAL', 0, labelY);
+    ctx.restore();
   }
 
   function drawHUD() {
@@ -1146,6 +1675,10 @@
     ctx.strokeText('THUIS  vs  UIT', 22, 24);
     ctx.fillText('THUIS  vs  UIT', 22, 24);
     ctx.restore();
+
+    // Minimap shows full-field tactical view; marker helps when the ball leaves the camera view.
+    drawMinimap();
+    drawBallDirectionMarker();
   }
 
   function drawOverlay() {
