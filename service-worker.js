@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pocket-five-aside-v4-5';
+const CACHE_NAME = 'pocket-five-aside-v4-5-1';
 
 const CORE_ASSETS = [
   './',

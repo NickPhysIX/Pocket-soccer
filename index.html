@@ -1696,23 +1696,31 @@
   function drawGoals() {
     const img = assets.goal;
     if (!img) {
-      drawMissingAssetBox(0, GOAL_TOP - 18, 44, GOAL_BOTTOM - GOAL_TOP + 36, 'GOAL');
-      drawMissingAssetBox(FIELD_WIDTH - 44, GOAL_TOP - 18, 44, GOAL_BOTTOM - GOAL_TOP + 36, 'GOAL');
+      drawMissingAssetBox(-58, GOAL_TOP - 10, 60, GOAL_BOTTOM - GOAL_TOP + 20, 'GOAL');
+      drawMissingAssetBox(FIELD_WIDTH - 2, GOAL_TOP - 10, 60, GOAL_BOTTOM - GOAL_TOP + 20, 'GOAL');
       return;
     }
-    // Goal sprite has opening facing left (post on the right side of the sprite).
-    // We render so that the goal opening sits AT the field's goal line (x=20 left, x=FIELD_WIDTH-20 right).
-    const goalH = GOAL_BOTTOM - GOAL_TOP + 32;
-    const goalW = goalH * img.width / img.height;
-    const y = GOAL_CENTER_Y - goalH / 2;
 
-    // Right goal: sprite as-is, opening (left side of sprite) at right goal line.
-    // Sprite right edge sits past the field; goal mouth aligns with sprite's left edge.
-    ctx.drawImage(img, FIELD_WIDTH - 20, y, goalW, goalH);
+    // The goal sprite is a side-view asset, so we anchor it using hand-tuned source-space
+    // landmarks rather than the full sprite bounds. This makes the visible mouth fit exactly
+    // between the field's goal markers on both sides.
+    const SOURCE_MOUTH_TOP = 111;
+    const SOURCE_MOUTH_BOTTOM = 246;
+    const SOURCE_FRONT_POST_X = 109;
 
-    // Left goal: flip horizontally. Sprite left edge sits past the field; goal mouth aligns with sprite's right edge.
+    const mouthH = SOURCE_MOUTH_BOTTOM - SOURCE_MOUTH_TOP;
+    const scale = (GOAL_BOTTOM - GOAL_TOP) / mouthH;
+    const goalW = img.width * scale;
+    const goalH = img.height * scale;
+    const y = GOAL_TOP - SOURCE_MOUTH_TOP * scale;
+
+    // Right goal: align the front post to the right goal line.
+    const rightX = (FIELD_WIDTH - 20) - SOURCE_FRONT_POST_X * scale;
+    ctx.drawImage(img, rightX, y, goalW, goalH);
+
+    // Left goal: mirror and align the front post to the left goal line.
     ctx.save();
-    ctx.translate(20, y);
+    ctx.translate(20 + (goalW - SOURCE_FRONT_POST_X * scale), y);
     ctx.scale(-1, 1);
     ctx.drawImage(img, 0, 0, goalW, goalH);
     ctx.restore();
