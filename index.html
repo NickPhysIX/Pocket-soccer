@@ -11,6 +11,12 @@
   <link rel="manifest" href="manifest.json">
   <title>Pocket Five-a-Side</title>
   <style>
+    :root {
+      --app-width: 100vw;
+      --app-height: 100dvh;
+      --mobile-ui-bottom: 0px;
+      --control-bottom: calc(var(--mobile-ui-bottom, 0px) + max(34px, env(safe-area-inset-bottom)));
+    }
     html, body {
       margin: 0;
       padding: 0;
@@ -28,8 +34,8 @@
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     #gameWrap {
-      width: 100vw;
-      height: 100vh;
+      width: var(--app-width, 100vw);
+      height: var(--app-height, 100dvh);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -106,38 +112,90 @@
     }
     #touchLayer { display: none; position: absolute; inset: 0; pointer-events: auto; z-index: 7; }
     html.touch .touchOnly, body.touch .touchOnly { display: block !important; }
-    #joyBase, #joyKnob {
+    #joyBase, #joyKnob, #joyGuide {
       display: none;
       position: absolute;
       border-radius: 50%;
       transform: translate(-50%, -50%);
       pointer-events: none;
     }
-    #joyBase { width: 100px; height: 100px; background: rgba(255,255,255,.24); border: 3px solid rgba(255,255,255,.55); }
-    #joyKnob { width: 42px; height: 42px; background: rgba(255,255,255,.62); border: 2px solid rgba(0,0,0,.25); }
+    #joyBase {
+      width: 108px;
+      height: 108px;
+      background: rgba(255,255,255,.24);
+      border: 3px solid rgba(255,255,255,.62);
+      box-shadow: 0 8px 18px rgba(0,0,0,.28), inset 0 0 22px rgba(255,255,255,.12);
+      z-index: 9;
+    }
+    #joyKnob {
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,.70);
+      border: 2px solid rgba(0,0,0,.30);
+      box-shadow: 0 4px 10px rgba(0,0,0,.25);
+      z-index: 10;
+    }
+    #joyGuide {
+      left: max(84px, calc(env(safe-area-inset-left) + 74px));
+      bottom: calc(var(--control-bottom) + 6px);
+      width: 112px;
+      height: 112px;
+      background: rgba(255,255,255,.12);
+      border: 3px solid rgba(255,255,255,.35);
+      box-shadow: 0 8px 18px rgba(0,0,0,.22);
+      z-index: 8;
+      opacity: .9;
+    }
+    #joyGuide::after {
+      content: "MOVE";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,.82);
+      font-weight: 900;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-shadow: 2px 2px 0 rgba(0,0,0,.6);
+    }
     .actionBtn {
       display: none;
       position: absolute;
-      bottom: max(30px, env(safe-area-inset-bottom));
+      bottom: var(--control-bottom);
       width: 96px;
       height: 96px;
       border-radius: 50%;
-      z-index: 8;
-      background: rgba(255,255,255,.35);
+      z-index: 9;
       color: #fff;
-      border: 3px solid rgba(255,255,255,.65);
+      border: 3px solid rgba(255,255,255,.78);
       text-shadow: 2px 2px 0 rgba(0,0,0,.75);
       font-size: 15px;
       pointer-events: auto;
-      box-shadow: 0 8px 18px rgba(0,0,0,.3), inset 0 -8px 20px rgba(0,0,0,.18);
+      box-shadow: 0 9px 20px rgba(0,0,0,.34), inset 0 -9px 20px rgba(0,0,0,.22), inset 0 7px 14px rgba(255,255,255,.18);
     }
-    #shootBtn { right: max(24px, env(safe-area-inset-right)); }
-    #passBtn { right: calc(max(24px, env(safe-area-inset-right)) + 108px); }
-    .actionBtn.flash, .actionBtn:active { background: rgba(255,230,80,.65); transform: scale(.94); }
+    #shootBtn {
+      right: max(24px, calc(env(safe-area-inset-right) + 24px));
+      background: rgba(255, 102, 35, .88);
+    }
+    #passBtn {
+      right: calc(max(24px, calc(env(safe-area-inset-right) + 24px)) + 112px);
+      background: rgba(38, 148, 255, .86);
+    }
+    #shootBtn.flash, #shootBtn:active { background: rgba(255, 214, 54, .95); transform: scale(.94); }
+    #passBtn.flash, #passBtn:active { background: rgba(93, 216, 255, .95); transform: scale(.94); }
     @media (max-width: 520px) {
       .actionBtn { width: 84px; height: 84px; font-size: 13px; }
-      #passBtn { right: calc(max(18px, env(safe-area-inset-right)) + 94px); }
-      #shootBtn { right: max(18px, env(safe-area-inset-right)); }
+      #passBtn { right: calc(max(18px, calc(env(safe-area-inset-right) + 18px)) + 96px); }
+      #shootBtn { right: max(18px, calc(env(safe-area-inset-right) + 18px)); }
+      #joyGuide {
+        width: 96px;
+        height: 96px;
+        left: max(70px, calc(env(safe-area-inset-left) + 62px));
+      }
+      #joyGuide::after { font-size: 12px; }
+    }
+    @media (display-mode: standalone) {
+      :root { --mobile-ui-bottom: 0px; }
     }
     #loading {
       position: absolute;
@@ -171,7 +229,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V4.3 build: QA-hardening, snellere camera, robuustere touch-controls en betere PWA-cache.</p>
+    <p class="small">V4.4 build: zichtbare iOS-controls, dynamische joystick en kleurknoppen.</p>
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -181,6 +239,7 @@
   </div>
 
   <div id="touchLayer" class="touchOnly">
+    <div id="joyGuide"></div>
     <div id="joyBase"></div>
     <div id="joyKnob"></div>
   </div>
@@ -233,6 +292,7 @@
   const loading = document.getElementById('loading');
   const joyBase = document.getElementById('joyBase');
   const joyKnob = document.getElementById('joyKnob');
+  const joyGuide = document.getElementById('joyGuide');
   const shootBtn = document.getElementById('shootBtn');
   const passBtn = document.getElementById('passBtn');
   const installHint = document.getElementById('installHint');
@@ -469,11 +529,29 @@
     });
   }
 
+  function getViewportMetrics() {
+    // iOS Safari can keep the canvas under the browser chrome when using 100vh.
+    // visualViewport gives the actually visible area, so controls stay above the URL/toolbar.
+    const vv = window.visualViewport;
+    const width = Math.max(320, Math.round((vv && vv.width) || window.innerWidth || FIELD_WIDTH));
+    const height = Math.max(240, Math.round((vv && vv.height) || window.innerHeight || FIELD_HEIGHT));
+    const hiddenBottom = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+    return { width, height, hiddenBottom };
+  }
+
+  function applyViewportVars(metrics) {
+    document.documentElement.style.setProperty('--app-width', metrics.width + 'px');
+    document.documentElement.style.setProperty('--app-height', metrics.height + 'px');
+    document.documentElement.style.setProperty('--mobile-ui-bottom', metrics.hiddenBottom + 'px');
+  }
+
   function resizeCanvas() {
-    // Fill the actual device screen instead of fitting the whole pitch into view.
+    // Fill the visible device screen instead of fitting the whole pitch into view.
     // The world remains 1200×700; rendering uses a camera so players stay readable.
-    const screenW = Math.max(320, window.innerWidth || FIELD_WIDTH);
-    const screenH = Math.max(240, window.innerHeight || FIELD_HEIGHT);
+    const metrics = getViewportMetrics();
+    applyViewportVars(metrics);
+    const screenW = metrics.width;
+    const screenH = metrics.height;
     // Cap DPR at 2 for smoother canvas performance on mobile; sprites remain crisp via pixelated rendering.
     VIEW_DPR = Math.min(2, window.devicePixelRatio || 1);
     VIEW_WIDTH = screenW;
@@ -488,6 +566,10 @@
   }
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('orientationchange', resizeCanvas);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resizeCanvas);
+    window.visualViewport.addEventListener('scroll', resizeCanvas);
+  }
 
   // === TEAM SETUP ===
   function makePlayer(opts) {
@@ -625,6 +707,7 @@
     input.joyId = id;
     input.joyBaseX = clientX;
     input.joyBaseY = clientY;
+    if (joyGuide) joyGuide.style.display = 'none';
     joyBase.style.display = 'block';
     joyKnob.style.display = 'block';
     updateJoystickVisual(clientX, clientY);
@@ -653,6 +736,7 @@
     input.joyX = 0; input.joyY = 0; input.joyPower = 0;
     joyBase.style.display = 'none';
     joyKnob.style.display = 'none';
+    if (joyGuide && document.documentElement.classList.contains('touch')) joyGuide.style.display = 'block';
   }
 
   function enableTouchMode() {
@@ -660,6 +744,7 @@
     // but doing both makes the on-screen controls robust across browsers and future CSS tweaks.
     document.documentElement.classList.add('touch');
     document.body.classList.add('touch');
+    if (joyGuide && !input.joyActive) joyGuide.style.display = 'block';
   }
 
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches;
@@ -671,7 +756,7 @@
 
   function inJoystickZone(clientX, clientY) {
     // Left-hand side of the screen is movement. Right side remains free for PASS/SCHIET buttons.
-    return clientX < window.innerWidth * 0.55;
+    return clientX < Math.max(240, window.innerWidth * 0.62);
   }
 
   if (window.PointerEvent) {
