@@ -259,7 +259,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V4.5.2 build: goals mirrored — opening faces field, net hangs off the back.
+    <p class="small">V4.5.3 build: new goal sprite — true transparency, front post on goal line, opening faces field.
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -1700,28 +1700,35 @@
       drawMissingAssetBox(FIELD_WIDTH - 2, GOAL_TOP - 10, 60, GOAL_BOTTOM - GOAL_TOP + 20, 'GOAL');
       return;
     }
-    // Side-view goal sprite: vertical front post with the net extending diagonally behind.
-    // The opening must face the FIELD; the net hangs off the field (off-screen is fine).
+    // Goal sprite: light isometric perspective with the FRONT POST on the LEFT side of the sprite
+    // (the dense vertical pillar at ~x=20 of the 476-wide source). The net extends to the right
+    // (back of the goal) with the back post slightly higher due to perspective.
     //
-    // In the source sprite the front post is on the right side; net extends upper-left.
-    //   - LEFT goal:  sprite as-is. Post on goal line at x=20. Net hangs off the left.
-    //   - RIGHT goal: mirrored. Post on goal line at x=FIELD_WIDTH-20. Net hangs off the right.
-    const POST_X_FRACTION = 0.65;            // front-post x in source sprite (measured: ~104/160)
-    const GOAL_VISUAL_SCALE = 1.0;           // 1.0 = post height equals goal height. Increase to make goal sprite more visually prominent.
+    // For each end of the field, we want the FRONT post on the goal line, opening facing the field,
+    // and the back of the goal hanging outside the field.
+    //   - LEFT goal (field is to the right):  sprite AS-IS. Front post (~x=4% of sprite) on x=20.
+    //   - RIGHT goal (field is to the left):  sprite MIRRORED. Front post (~x=96% of mirrored) on x=FIELD_WIDTH-20.
+    const FRONT_POST_FRACTION = 20 / 476;    // measured: front post is ~4% from the sprite's left edge
+    const GOAL_VISUAL_SCALE = 1.3;           // visual scale multiplier; 1.0 = post height equals goal height
     const goalH = (GOAL_BOTTOM - GOAL_TOP) * GOAL_VISUAL_SCALE;
     const goalW = goalH * img.width / img.height;
-    // Center vertically on the goal midline so growing the sprite expands both up and down.
+    // Vertically center on the goal midline so the visual goal expands evenly around GOAL_CENTER_Y.
     const y = (GOAL_TOP + GOAL_BOTTOM) / 2 - goalH / 2;
 
-    // LEFT goal: sprite as-is. Front post sits on x=20.
-    const leftSpriteLeft = 20 - goalW * POST_X_FRACTION;
+    // Move both goals a touch OUTWARD so the thick front post sits on / just behind the field edge,
+    // instead of visually intruding into the pitch.
+    const GOAL_OUTSET = 20;
+
+    // LEFT goal: sprite as-is. Front post sits slightly behind x=20.
+    const leftSpriteLeft = 20 - goalW * FRONT_POST_FRACTION - GOAL_OUTSET;
     ctx.drawImage(img, leftSpriteLeft, y, goalW, goalH);
 
-    // RIGHT goal: mirror horizontally. Front post sits on x = FIELD_WIDTH - 20.
+    // RIGHT goal: mirror horizontally so the opening faces the field (to the left).
+    // The whole sprite is also pushed slightly outward.
     ctx.save();
-    ctx.translate(FIELD_WIDTH - 20, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(img, -goalW * POST_X_FRACTION, y, goalW, goalH);
+    ctx.translate(FIELD_WIDTH - 20 + GOAL_OUTSET, 0);               // origin just outside the right goal line
+    ctx.scale(-1, 1);                                                // flip horizontally
+    ctx.drawImage(img, -goalW * FRONT_POST_FRACTION, y, goalW, goalH); // post at flipped-x=0
     ctx.restore();
   }
 
