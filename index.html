@@ -259,7 +259,7 @@
       <button data-duration="600">2×10 min</button>
     </div>
     <button id="startBtn">Start Match</button>
-    <p class="small">V4.5.3 build: new goal sprite — true transparency, front post on goal line, opening faces field.
+    <p class="small">V4.5.7 build: goal field-facing edge anchored exactly on the outer field line.
   </div>
 
   <div id="rematchPanel" class="panel">
@@ -1700,36 +1700,45 @@
       drawMissingAssetBox(FIELD_WIDTH - 2, GOAL_TOP - 10, 60, GOAL_BOTTOM - GOAL_TOP + 20, 'GOAL');
       return;
     }
-    // Goal sprite: light isometric perspective with the FRONT POST on the LEFT side of the sprite
-    // (the dense vertical pillar at ~x=20 of the 476-wide source). The net extends to the right
-    // (back of the goal) with the back post slightly higher due to perspective.
+    // ==========================================================================
+    // GOAL POSITIONING — tweakable constants for Niels to dial in visually.
     //
-    // For each end of the field, we want the FRONT post on the goal line, opening facing the field,
-    // and the back of the goal hanging outside the field.
-    //   - LEFT goal (field is to the right):  sprite AS-IS. Front post (~x=4% of sprite) on x=20.
-    //   - RIGHT goal (field is to the left):  sprite MIRRORED. Front post (~x=96% of mirrored) on x=FIELD_WIDTH-20.
-    const FRONT_POST_FRACTION = 20 / 476;    // measured: front post is ~4% from the sprite's left edge
-    const GOAL_VISUAL_SCALE = 1.3;           // visual scale multiplier; 1.0 = post height equals goal height
+    // GOAL_VISUAL_SCALE: how large the goal sprite renders. 1.0 = post height equals goal height.
+    // GOAL_X_OFFSET: how far OUTWARD (away from field center) to push each goal. Positive values
+    //                shift goals further outside the field. Negative values pull them back inward.
+    //                Increase this if the goal looks like it's INSIDE the field.
+    //                Decrease (or make negative) if the goal is too far outside.
+    // ==========================================================================
+    const GOAL_VISUAL_SCALE = 2.0;
+    const GOAL_X_OFFSET = 0;    // pixels to push each goal further outside the field (positive = outward, negative = inward)
+
     const goalH = (GOAL_BOTTOM - GOAL_TOP) * GOAL_VISUAL_SCALE;
     const goalW = goalH * img.width / img.height;
-    // Vertically center on the goal midline so the visual goal expands evenly around GOAL_CENTER_Y.
     const y = (GOAL_TOP + GOAL_BOTTOM) / 2 - goalH / 2;
 
-    // Move both goals a touch OUTWARD so the thick front post sits on / just behind the field edge,
-    // instead of visually intruding into the pitch.
-    const GOAL_OUTSET = 20;
+    // Sprite orientation:
+    //   - In the source sprite, the goal OPENING faces LEFT (wide U-shape on the left half).
+    //   - The thick FRONT POST and back-perspective sit on the RIGHT half.
+    // To make each in-game goal open toward the field:
+    //   - LEFT goal  (field is to the RIGHT):  MIRROR the sprite. Opening now faces right.
+    //   - RIGHT goal (field is to the LEFT):   sprite AS-IS. Opening already faces left.
+    //
+    // We baseline-anchor each sprite's "field-facing edge" to the goal line (x=20 / x=FIELD_WIDTH-20),
+    // then push the whole sprite OUTWARD by GOAL_X_OFFSET pixels.
 
-    // LEFT goal: sprite as-is. Front post sits slightly behind x=20.
-    const leftSpriteLeft = 20 - goalW * FRONT_POST_FRACTION - GOAL_OUTSET;
-    ctx.drawImage(img, leftSpriteLeft, y, goalW, goalH);
-
-    // RIGHT goal: mirror horizontally so the opening faces the field (to the left).
-    // The whole sprite is also pushed slightly outward.
+    // LEFT goal: mirrored. Field-facing edge (= flipped sprite's RIGHT edge) at x=20.
+    // Sprite's left = 20 - goalW. Push outward (leftward) by GOAL_X_OFFSET.
+    const leftSpriteX = 20 - goalW - GOAL_X_OFFSET;
     ctx.save();
-    ctx.translate(FIELD_WIDTH - 20 + GOAL_OUTSET, 0);               // origin just outside the right goal line
-    ctx.scale(-1, 1);                                                // flip horizontally
-    ctx.drawImage(img, -goalW * FRONT_POST_FRACTION, y, goalW, goalH); // post at flipped-x=0
+    ctx.translate(leftSpriteX + goalW, 0);    // origin at the (would-be) right edge of the flipped sprite
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, y, goalW, goalH);
     ctx.restore();
+
+    // RIGHT goal: as-is. Field-facing edge (= sprite's LEFT edge) at x=FIELD_WIDTH-20.
+    // Push outward (rightward) by GOAL_X_OFFSET.
+    const rightSpriteX = (FIELD_WIDTH - 20) + GOAL_X_OFFSET;
+    ctx.drawImage(img, rightSpriteX, y, goalW, goalH);
   }
 
   function drawPlayerSprite(player) {
